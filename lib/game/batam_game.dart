@@ -69,8 +69,8 @@ class BatamGame extends FlameGame with KeyboardEvents {
   BatamGame() : super();
 
   /// Zoom acuan pada tinggi layar desain 390 px.
-  static const walkZoom = 16.0;
-  static const rideZoomMin = 10.5;
+  static const walkZoom = 13.0;
+  static const rideZoomMin = 8.5;
 
   late final RoadGraph graph;
   late final Player player;
