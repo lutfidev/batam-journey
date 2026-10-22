@@ -50,7 +50,8 @@ class CityLayer extends Component with HasGameReference<BatamGame> {
 
   final _props = <int, List<CityProp>>{};
   final _decor = <int, List<CityProp>>{};
-  final _blockers = RectIndex();
+  /// Kotak penghalang per sel 20×20, bersama sprite pemiliknya.
+  final _blockers = <int, List<(Rect, String)>>{};
   final _footprints = RectIndex();
 
   /// Blok kota sudah dibuat; pohon & lampu baru ditempatkan setelahnya supaya
@@ -68,7 +69,11 @@ class CityLayer extends Component with HasGameReference<BatamGame> {
     (_props[_chunkKey(_chunkOf(at.dx), _chunkOf(at.dy))] ??= []).add(p);
     if (p.spec.footprint case final f?) _footprints.add(f);
     for (final b in p.spec.blockers) {
-      _blockers.add(b);
+      for (var cx = (b.left / 20).floor(); cx <= (b.right / 20).floor(); cx++) {
+        for (var cy = (b.top / 20).floor(); cy <= (b.bottom / 20).floor(); cy++) {
+          (_blockers[_chunkKey(cx, cy)] ??= []).add((b, p.spec.sprite));
+        }
+      }
     }
   }
 
@@ -83,8 +88,14 @@ class CityLayer extends Component with HasGameReference<BatamGame> {
     _decor.clear();
   }
 
-  /// Titik [p] ada di dalam bangunan (tidak bisa dilewati).
-  bool blocks(Offset p) => _blockers.contains(p);
+  /// Titik [p] ada di dalam bangunan yang sudah tampil (sprite-nya siap), jadi
+  /// tidak ada dinding tak terlihat selama sprite kota masih dipanggang.
+  bool blocks(Offset p) {
+    for (final (r, sprite) in _blockers[_chunkKey((p.dx / 20).floor(), (p.dy / 20).floor())] ?? const <(Rect, String)>[]) {
+      if (r.contains(p) && game.sprites.loaded(sprite) != null) return true;
+    }
+    return false;
+  }
 
   List<CityProp> _decorFor(int cx, int cy) => _decor[_chunkKey(cx, cy)] ??= [
     for (final s in generateChunkDecor(graph, mask, zones, cx, cy, nearBuilding: _footprints.overlaps)) CityProp(s),
@@ -101,6 +112,7 @@ class CityLayer extends Component with HasGameReference<BatamGame> {
 
   @override
   void renderTree(Canvas canvas) {
+    if (!game.worldReady.value) return;
     final view = game.camera.visibleWorldRect;
     // Bangunan tinggi yang titik pijaknya di bawah layar masih bisa terlihat.
     final reach = groundRectOf(Rect.fromLTRB(view.left - 25, view.top - 5, view.right + 25, view.bottom + 45));
