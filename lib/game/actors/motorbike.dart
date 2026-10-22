@@ -172,7 +172,7 @@ class Motorbike extends PositionComponent with HasGameReference<BatamGame>, IsoP
       s.at += s.drift * dt;
       s.z += 0.9 * dt;
     }
-    _smoke.removeWhere((s) => s.age >= _Smoke.life);
+    _smoke.removeWhere((s) => s.age >= s.life);
     if (!running) return;
     // Langsam: kepul jarang; makin dalam gas, makin rapat.
     _smokeIn -= dt;
@@ -180,8 +180,15 @@ class Motorbike extends PositionComponent with HasGameReference<BatamGame>, IsoP
       _smokeIn += 1 / (2.5 + 14 * throttle);
       final back = Offset(-math.cos(heading), -math.sin(heading));
       final side = Offset(-back.dy, back.dx) * (_rng.nextDouble() - 0.5);
+      // Saat melaju asap cepat buyar, supaya tidak jadi deretan titik panjang.
       _smoke.add(
-        _Smoke(_ground(MotorPoints.exhaust), MotorPoints.exhaust.z, back * 1.2 + side, 0.7 + _rng.nextDouble() * 0.5),
+        _Smoke(
+          _ground(MotorPoints.exhaust),
+          MotorPoints.exhaust.z,
+          back * 1.2 + side,
+          0.7 + _rng.nextDouble() * 0.5,
+          _Smoke.maxLife / (1 + speed.abs() / 8),
+        ),
       );
     }
   }
@@ -225,7 +232,7 @@ class Motorbike extends PositionComponent with HasGameReference<BatamGame>, IsoP
   void _renderSmoke(Canvas canvas, Offset here, bool Function(_Smoke) which) {
     for (final s in _smoke) {
       if (!which(s)) continue;
-      final t = s.age / _Smoke.life;
+      final t = s.age / s.life;
       final c = isoOf(s.at - here) - Offset(0, s.z * IsoCamera.heightScale);
       final r = (0.18 + 0.4 * t) * s.size;
       final fade = 1 - t;
@@ -237,16 +244,18 @@ class Motorbike extends PositionComponent with HasGameReference<BatamGame>, IsoP
   }
 }
 
-/// Kepul asap knalpot di titik tanah [at] setinggi [z]; hanyut ke [drift].
+/// Kepul asap knalpot di titik tanah [at] setinggi [z]; hanyut ke [drift] dan
+/// hilang setelah [life] detik.
 class _Smoke {
-  _Smoke(this.at, this.z, this.drift, this.size);
+  _Smoke(this.at, this.z, this.drift, this.size, this.life);
 
-  static const life = 0.9;
+  /// Umur kepul saat motor diam (langsam).
+  static const maxLife = 0.9;
 
   Offset at;
   double z;
   final Offset drift;
-  final double size;
+  final double size, life;
   double age = 0;
 }
 
