@@ -85,6 +85,9 @@ selesai saat November, aset yang tersisa langsung dibuat di Blender.
       pohon, dan lampu jalan.
 
 ## Catatan
+- Format sprite bersama (atlas 16 arah × frame, JSON pendamping PNG) dijelaskan di
+  `lib/game/sprites/sprite_sheet.dart`; sumber per aset diatur di `spriteSources`
+  (`lib/game/sprites/sprite_library.dart`). Script Blender di bagian C harus menulis format ini.
 - Rasa setir joystick belum pernah dicoba langsung di HP, karena adb hanya bisa satu sentuhan.
   Dicoba bersama langkah 4.
 - Tiap langkah dicek di HP uji (build release lewat adb). Screenshot sebelum/sesudah dilampirkan di
