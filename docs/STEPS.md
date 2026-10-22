@@ -13,7 +13,7 @@ Arah visual baru: **kota isometrik kartun** (seperti Pocket City / SimCity Build
 ## A. Fondasi isometrik & rasa main
 Dikerjakan dulu, berurutan.
 
-- [ ] 1. `feat/iso-fondasi`: proyeksi iso untuk tanah, laut, jalan, dan rute GPS.
+- [x] 1. `feat/iso-fondasi`: proyeksi iso untuk tanah, laut, jalan, dan rute GPS.
       - Kamera iso dengan zoom/skala baru.
       - Joystick dipetakan dari arah layar ke arah tanah (jalan kaki & setir).
       - Urutan kedalaman memakai `x + y` tanah.
@@ -85,6 +85,9 @@ selesai saat November, aset yang tersisa langsung dibuat di Blender.
       pohon, dan lampu jalan.
 
 ## Catatan
+- Format sprite bersama (atlas 16 arah × frame, JSON pendamping PNG) dijelaskan di
+  `lib/game/sprites/sprite_sheet.dart`; sumber per aset diatur di `spriteSources`
+  (`lib/game/sprites/sprite_library.dart`). Script Blender di bagian C harus menulis format ini.
 - Rasa setir joystick belum pernah dicoba langsung di HP, karena adb hanya bisa satu sentuhan.
   Dicoba bersama langkah 4.
 - Tiap langkah dicek di HP uji (build release lewat adb). Screenshot sebelum/sesudah dilampirkan di
@@ -92,3 +95,4 @@ selesai saat November, aset yang tersisa langsung dibuat di Blender.
 
 ## Selesai
 - [x] Setir motor ikut arah joystick, pemain jadi slime jelly, README dengan screenshot (PR #1).
+- [x] Fondasi isometrik: proyeksi tanah, kamera, joystick, kedalaman (PR #4).
