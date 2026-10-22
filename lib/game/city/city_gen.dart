@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
+import '../map/ground_mesh.dart' show clipToRect;
 import '../map/land_mask.dart';
 import '../map/road_graph.dart';
 import '../model3d/models/buildings.dart';
@@ -86,7 +87,7 @@ class Site {
 
 /// Jarak terpendek dari ruas [a]–[b] ke kotak [r] (0 bila bersentuhan).
 double segmentRectDistance(Offset a, Offset b, Rect r) {
-  if (r.contains(a) || r.contains(b) || _segmentHitsRect(a, b, r)) return 0;
+  if (clipToRect(a, b, r) != null) return 0;
   double ptRect(Offset p) {
     final dx = math.max(math.max(r.left - p.dx, 0.0), p.dx - r.right);
     final dy = math.max(math.max(r.top - p.dy, 0.0), p.dy - r.bottom);
@@ -102,29 +103,6 @@ double segmentRectDistance(Offset a, Offset b, Rect r) {
 
   return [ptRect(a), ptRect(b), ptSeg(r.topLeft), ptSeg(r.topRight), ptSeg(r.bottomLeft), ptSeg(r.bottomRight)]
       .reduce(math.min);
-}
-
-bool _segmentHitsRect(Offset a, Offset b, Rect r) {
-  // Liang–Barsky: potong ruas dengan kotak.
-  var t0 = 0.0, t1 = 1.0;
-  final d = b - a;
-  bool clip(double p, double q) {
-    if (p == 0) return q >= 0;
-    final t = q / p;
-    if (p < 0) {
-      if (t > t1) return false;
-      if (t > t0) t0 = t;
-    } else {
-      if (t < t0) return false;
-      if (t < t1) t1 = t;
-    }
-    return true;
-  }
-
-  return clip(-d.dx, a.dx - r.left) &&
-      clip(d.dx, r.right - a.dx) &&
-      clip(-d.dy, a.dy - r.top) &&
-      clip(d.dy, r.bottom - a.dy);
 }
 
 /// Jarak tapak [r] ke tepi aspal terdekat (negatif = menimpa aspal).
@@ -390,7 +368,7 @@ List<PropSpec> generateBuildings(RoadGraph g, LandMask mask, List<Rect> reserved
 }
 
 /// Pohon & lampu jalan di satu chunk ([cx], [cy]); dibuat saat chunk pertama
-/// kali terlihat. [blocked] = di dalam tapak bangunan.
+/// kali terlihat. [nearBuilding] = kotak itu menimpa tapak bangunan.
 List<PropSpec> generateChunkDecor(
   RoadGraph g,
   LandMask mask,

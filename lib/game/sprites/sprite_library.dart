@@ -101,10 +101,10 @@ class SpriteLibrary {
 
   Future<DirectionalSprite> load(String id) => _cache[id] ??= _load(id).then((s) => _ready[id] = s);
 
-  /// Sprite yang sudah selesai dimuat lewat [load].
   /// Sprite [id] bila sudah selesai dimuat, tanpa memicu pemuatan.
   DirectionalSprite? loaded(String id) => _ready[id];
 
+  /// Sprite yang sudah selesai dimuat lewat [load].
   DirectionalSprite operator [](String id) => _ready[id] ?? (throw StateError('sprite "$id" belum dimuat'));
 
   Future<DirectionalSprite> _load(String id) async {
