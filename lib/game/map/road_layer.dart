@@ -5,11 +5,13 @@ import 'package:flame/components.dart';
 
 import '../../ui/palette.dart';
 import '../batam_game.dart';
+import '../iso.dart';
 import 'land_mask.dart';
 import 'road_graph.dart';
 
 /// Menggambar laut, tanah, pohon, dan jalan yang terlihat kamera saja.
 /// Urutan lapis: trotoar semua jalan → aspal → marka, supaya simpang menyatu.
+/// Lantai digambar di koordinat tanah lewat [isoMatrix]; pohon tegak di titik iso-nya.
 class RoadLayer extends Component with HasGameReference<BatamGame> {
   RoadLayer(this.graph) : super(priority: -1000000000);
 
@@ -61,7 +63,9 @@ class RoadLayer extends Component with HasGameReference<BatamGame> {
 
   @override
   void render(Canvas canvas) {
-    final view = game.camera.visibleWorldRect.inflate(4);
+    final view = groundRectOf(game.camera.visibleWorldRect).inflate(4);
+    canvas.save();
+    canvas.transform(isoMatrix);
     canvas.drawRect(view, _deep);
     canvas.drawPath(_coastPath(view, (s) => s != Surface.deep), _shallow);
     canvas.drawPath(_coastPath(view, (s) => s == Surface.land), _ground);
@@ -85,6 +89,7 @@ class RoadLayer extends Component with HasGameReference<BatamGame> {
     canvas.drawPath(dashes, _marking);
 
     _renderRoute(canvas);
+    canvas.restore();
 
     _renderTrees(canvas, view);
   }
@@ -188,19 +193,19 @@ class RoadLayer extends Component with HasGameReference<BatamGame> {
   void _renderTrees(Canvas canvas, Rect view) {
     final x0 = (view.left / _treeCell).floor(), x1 = (view.right / _treeCell).floor();
     final y0 = (view.top / _treeCell).floor(), y1 = (view.bottom / _treeCell).floor();
-    for (var cy = y0; cy <= y1; cy++) {
-      for (var cx = x0; cx <= x1; cx++) {
-        for (final t in _treesFor(cx, cy)) {
-          canvas.drawOval(
-            Rect.fromCenter(center: t.pos + Offset(t.r * 0.3, t.r * 0.5), width: t.r * 2.2, height: t.r * 1.4),
-            _treeShadow,
-          );
-          final paint = t.dark ? _treeB : _treeA;
-          canvas.drawCircle(t.pos, t.r, paint);
-          canvas.drawCircle(t.pos, t.r, _treeLine);
-          canvas.drawCircle(t.pos - Offset(t.r * 0.3, t.r * 0.35), t.r * 0.45, t.dark ? _treeA : _treeHi);
-        }
-      }
+    final trees = [
+      for (var cy = y0; cy <= y1; cy++)
+        for (var cx = x0; cx <= x1; cx++) ..._treesFor(cx, cy),
+    ]..sort((a, b) => (a.pos.dx + a.pos.dy).compareTo(b.pos.dx + b.pos.dy));
+    for (final t in trees) {
+      // Tajuk bulat tegak di atas titik pijaknya, bayangan lonjong di tanah.
+      final base = isoOf(t.pos);
+      final c = base - Offset(0, t.r * 0.9);
+      canvas.drawOval(Rect.fromCenter(center: base, width: t.r * 2.4, height: t.r * 1.2), _treeShadow);
+      final paint = t.dark ? _treeB : _treeA;
+      canvas.drawCircle(c, t.r, paint);
+      canvas.drawCircle(c, t.r, _treeLine);
+      canvas.drawCircle(c - Offset(t.r * 0.3, t.r * 0.35), t.r * 0.45, t.dark ? _treeA : _treeHi);
     }
   }
 

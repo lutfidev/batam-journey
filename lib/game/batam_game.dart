@@ -14,6 +14,7 @@ import 'actors/house_station.dart';
 import 'actors/motorbike.dart';
 import 'actors/player.dart';
 import 'actors/workshop_station.dart';
+import 'iso.dart';
 import 'map/road_graph.dart';
 import 'map/road_layer.dart';
 import 'systems/business.dart';
@@ -200,7 +201,7 @@ class BatamGame extends FlameGame with KeyboardEvents {
     player = Player(position: Vector2(kerb.dx, kerb.dy) + Vector2(dir.dx, dir.dy) * -3.5);
     world.addAll([motor, player]);
 
-    camera.follow(player, snap: true);
+    _followPlayer();
     camera.viewfinder.zoom = _baseZoom * walkZoom;
     orders.refreshOffers(playerOffset);
     _refreshHud();
@@ -403,6 +404,9 @@ class BatamGame extends FlameGame with KeyboardEvents {
 
   double get _baseZoom => size.y / 390;
 
+  /// Kamera menempel ke titik layar iso pemain (posisi pemain = koordinat tanah).
+  void _followPlayer() => camera.viewfinder.position = isoOfV(player.position);
+
   void clampToWorld(Vector2 p) {
     p.x = p.x.clamp(0, graph.size.width);
     p.y = p.y.clamp(0, graph.size.height);
@@ -526,6 +530,7 @@ class BatamGame extends FlameGame with KeyboardEvents {
     final targetZoom = _baseZoom * (player.isRiding ? walkZoom - (walkZoom - rideZoomMin) * speedFrac : walkZoom);
     final vf = camera.viewfinder;
     vf.zoom += (targetZoom - vf.zoom) * math.min(1, dt * 2.5);
+    _followPlayer();
 
     speedKmh.value = motor.speedKmh.round();
     frame.tick();

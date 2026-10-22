@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flame/components.dart';
 
 import '../batam_game.dart';
+import '../iso.dart';
 import '../map/road_layer.dart';
 import 'motorbike.dart';
 import 'sprites.dart';
@@ -12,7 +13,7 @@ enum PlayerMode { walking, riding }
 
 /// Pemain (slime jelly). Saat naik motor, posisinya menempel ke motor
 /// sehingga kamera cukup mengikuti satu komponen ini.
-class Player extends PositionComponent with HasGameReference<BatamGame> {
+class Player extends PositionComponent with HasGameReference<BatamGame>, IsoPlaced {
   Player({required Vector2 position}) : super(position: position);
 
   /// Skala piksel desain → satuan dunia (slime ±3,6 × 3,1 unit).
@@ -56,10 +57,11 @@ class Player extends PositionComponent with HasGameReference<BatamGame> {
   void update(double dt) {
     if (isRiding) {
       position.setFrom(vehicle!.position);
-      priority = position.y.toInt() + 1;
+      priority = isoDepth(position, 1);
       return;
     }
-    final move = game.controls.move;
+    // Joystick = arah layar; dipetakan balik ke arah tanah.
+    final move = screenDirToGround(game.controls.move);
     _moving = move.length2 > 0.0025;
     if (_moving) {
       final m = move.length > 1 ? move.normalized() : move;
@@ -70,7 +72,7 @@ class Player extends PositionComponent with HasGameReference<BatamGame> {
       // Napas pelan saat diam.
       _phase += dt * 2.5;
     }
-    priority = position.y.toInt();
+    priority = isoDepth(position);
   }
 
   /// Gerak sejauh [d]; di pantai meluncur sepanjang garis pantai (coba X lalu Y).
@@ -92,7 +94,7 @@ class Player extends PositionComponent with HasGameReference<BatamGame> {
     if (isRiding) return;
     canvas.save();
     canvas.scale(spriteScale);
-    final look = _facing.normalized();
+    final look = groundDirToScreen(_facing);
     drawSlime(canvas, lookX: look.x, lookY: look.y, phase: _phase, moving: _moving);
     canvas.restore();
   }

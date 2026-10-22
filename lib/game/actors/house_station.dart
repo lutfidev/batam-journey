@@ -5,14 +5,15 @@ import 'package:flutter/painting.dart' show TextPainter, TextSpan, TextStyle, Fo
 
 import '../../ui/palette.dart';
 import '../batam_game.dart';
+import '../iso.dart';
 import '../systems/housing.dart';
 
 /// Rumah di pinggir jalan: kos Bu Ros, rumah dijual, atau rumah milikmu.
 /// Papan kecil di depannya berubah: KOS / DIJUAL / RUMAHMU.
 /// Titik (0,0) = tengah depan halaman.
-class HouseStation extends PositionComponent with HasGameReference<BatamGame> {
+class HouseStation extends PositionComponent with HasGameReference<BatamGame>, IsoPlaced {
   HouseStation({required Vector2 position, required this.homeId, required this.roof, required this.title})
-    : super(position: position, priority: position.y.toInt() - 12);
+    : super(position: position, priority: isoDepth(position, -12));
 
   final String homeId;
   final Color roof;
@@ -46,6 +47,10 @@ class HouseStation extends PositionComponent with HasGameReference<BatamGame> {
     ),
     textDirection: TextDirection.ltr,
   )..layout();
+
+  /// Sprite lama (tampak 3/4) dipusatkan di tengah lantai iso sampai diganti model 3D.
+  @override
+  Offset get spriteOffset => buildingSpriteOffset;
 
   @override
   void render(Canvas canvas) {
