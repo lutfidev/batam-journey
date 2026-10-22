@@ -9,6 +9,7 @@ import 'package:flutter/widgets.dart' show KeyEventResult;
 
 import '../ui/palette.dart';
 import 'actors/business_station.dart';
+import 'actors/destination_pin.dart';
 import 'actors/fuel_station.dart';
 import 'actors/house_station.dart';
 import 'actors/motorbike.dart';
@@ -17,6 +18,7 @@ import 'actors/workshop_station.dart';
 import 'iso.dart';
 import 'map/road_graph.dart';
 import 'map/road_layer.dart';
+import 'sprites/sprite_library.dart';
 import 'systems/business.dart';
 import 'systems/clock.dart';
 import 'systems/economy.dart';
@@ -80,6 +82,7 @@ class BatamGame extends FlameGame with KeyboardEvents {
   late final RoadEventSystem roadEvents;
   late final MissionSystem missions;
   late final ui.Image mapImage;
+  late final sprites = SpriteLibrary(loadImage: images.load, loadText: (f) => assets.readFile('images/$f'));
   final stations = <FuelStation>[];
   final workshops = <WorkshopStation>[];
   final houses = <HouseStation>[];
@@ -199,7 +202,7 @@ class BatamGame extends FlameGame with KeyboardEvents {
 
     motor = Motorbike(position: Vector2(kerb.dx, kerb.dy), heading: math.atan2(dir.dy, dir.dx));
     player = Player(position: Vector2(kerb.dx, kerb.dy) + Vector2(dir.dx, dir.dy) * -3.5);
-    world.addAll([motor, player]);
+    world.addAll([motor, player, DestinationPin(await sprites.load(SpriteIds.pinTujuan))]);
 
     _followPlayer();
     camera.viewfinder.zoom = _baseZoom * walkZoom;
