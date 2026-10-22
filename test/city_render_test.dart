@@ -42,17 +42,19 @@ void main() {
     final view = Rect.fromCenter(center: c, width: w, height: h);
     final rec = ui.PictureRecorder();
     final canvas = ui.Canvas(rec);
+    canvas.drawColor(const ui.Color(0xFF4FB6CC), ui.BlendMode.src);
     canvas.scale(ppu);
     canvas.translate(-view.left, -view.top);
     final layer = RoadLayer(graph, mask);
     canvas.save();
     canvas.transform(isoMatrix);
     final ground = groundRectOf(view);
-    for (var y = (ground.top / chunkSize).floor(); y <= (ground.bottom / chunkSize).floor(); y++) {
-      for (var x = (ground.left / chunkSize).floor(); x <= (ground.right / chunkSize).floor(); x++) {
-        canvas.drawPicture(layer.recordChunk(x, y));
-      }
-    }
+    final chunks = [
+      for (var y = (ground.top / chunkSize).floor(); y <= (ground.bottom / chunkSize).floor(); y++)
+        for (var x = (ground.left / chunkSize).floor(); x <= (ground.right / chunkSize).floor(); x++)
+          layer.buildChunk(x, y),
+    ];
+    layer.drawChunks(canvas, chunks);
     canvas.restore();
     final reach = groundRectOf(Rect.fromLTRB(view.left - 25, view.top - 5, view.right + 25, view.bottom + 45));
     final props = [...buildings, ...decor].where((p) => reach.contains(p.at)).toList()

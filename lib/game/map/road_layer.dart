@@ -7,14 +7,20 @@ import '../../ui/palette.dart';
 import '../batam_game.dart';
 import '../iso.dart';
 import '../city/city_gen.dart' show chunkSize;
+import 'ground_mesh.dart';
 import 'land_mask.dart';
 import 'road_graph.dart';
 
-/// Menggambar laut, tanah, dan jalan. Lantai tiap chunk 1×1 km direkam sekali
-/// jadi [Picture] (dicache), lalu diputar ulang tiap frame; hanya rute GPS yang
-/// digambar langsung. Urutan lapis di dalam chunk: laut → darat → trotoar semua
-/// jalan → aspal → marka & zebra cross, supaya simpang menyatu.
-/// Lantai digambar di koordinat tanah lewat [isoMatrix].
+/// Menggambar laut, tanah, dan jalan. Lantai tiap chunk 1×1 km dipecah jadi
+/// segitiga sekali saja (dicache sebagai [GroundMesh] per lapis), lalu tiap frame
+/// hanya chunk yang terlihat yang digambar. Impeller men-tessellate ulang path &
+/// garis tebal setiap frame, jadi segitiga siap pakai jauh lebih ringan. Satu
+/// mesh per chunk (bukan ubin kecil) karena di HP biaya utamanya jumlah draw
+/// call, bukan segitiga di luar layar.
+/// Urutan lapis: laut dangkal → darat → trotoar semua jalan → aspal → marka &
+/// zebra cross, digambar lapis demi lapis di semua chunk supaya simpang dan batas
+/// chunk menyatu tanpa klip. Lantai digambar di koordinat tanah lewat [isoMatrix];
+/// hanya rute GPS yang digambar langsung.
 class RoadLayer extends Component with HasGameReference<BatamGame> {
   RoadLayer(this.graph, this.mask) : super(priority: -1000000000);
 
@@ -26,112 +32,122 @@ class RoadLayer extends Component with HasGameReference<BatamGame> {
   static const _curb = 1.2;
   static const _dash = 2.2;
   static const _gap = 1.6;
+  static const _markWidth = 0.35;
 
   static const _shallowColor = Color(0xFF7FCCDA);
+  static const _zebraColor = Color(0xFFF4F1EA);
 
   /// Chunk yang disimpan paling banyak; yang paling lama tidak terlihat dibuang.
   static const maxChunks = 24;
 
-  final _ground = Paint()..color = BColors.tanah;
-  final _deep = Paint()..color = BColors.laut;
-  final _shallow = Paint()..color = _shallowColor;
-  final _curbPaint = Paint()
-    ..style = PaintingStyle.stroke
-    ..strokeCap = StrokeCap.round
-    ..color = BColors.trotoar;
-  final _railPaint = Paint()
-    ..style = PaintingStyle.stroke
-    ..strokeCap = StrokeCap.round
-    ..color = BColors.atapMerah;
-  final _asphalt = Paint()
-    ..style = PaintingStyle.stroke
-    ..strokeCap = StrokeCap.round
-    ..color = BColors.aspal;
-  final _marking = Paint()
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 0.35
-    ..color = BColors.kuning;
-  final _zebra = Paint()..color = const Color(0xFFF4F1EA);
+  /// Jumlah lapis per chunk (laut dangkal, darat, trotoar, aspal, marka).
+  static const layers = 5;
 
-  /// Kunci chunk → gambar lantai; urutan sisip = urutan terakhir dipakai.
-  final _chunks = <int, Picture>{};
+  /// Kunci chunk → [layers] lapis lantainya; urutan sisip = urutan terakhir dipakai.
+  final _chunks = <int, List<GroundMesh>>{};
 
   late final List<_Crossing> _crossings = _findCrossings(graph);
 
+  final _visibleChunks = <List<GroundMesh>>[];
+
   @override
   void render(Canvas canvas) {
-    final view = groundRectOf(game.camera.visibleWorldRect).inflate(4);
-    canvas.save();
-    canvas.transform(isoMatrix);
+    // Isi chunk (jalan lebar, ujung bulat) bisa menjorok ±8 unit ke luar chunknya.
+    final view = groundRectOf(game.camera.visibleWorldRect).inflate(8);
+    _visibleChunks.clear();
     for (var cy = (view.top / chunkSize).floor(); cy <= (view.bottom / chunkSize).floor(); cy++) {
       for (var cx = (view.left / chunkSize).floor(); cx <= (view.right / chunkSize).floor(); cx++) {
-        canvas.drawPicture(_chunk(cx, cy));
+        _visibleChunks.add(_chunk(cx, cy));
       }
     }
+    canvas.save();
+    canvas.transform(isoMatrix);
+    drawChunks(canvas, _visibleChunks);
     _renderRoute(canvas);
     canvas.restore();
   }
 
-  Picture _chunk(int cx, int cy) {
+  /// Gambar [chunks] lapis demi lapis (kanvas sudah di koordinat tanah).
+  void drawChunks(Canvas canvas, List<List<GroundMesh>> chunks) {
+    for (var l = 0; l < layers; l++) {
+      for (final chunk in chunks) {
+        chunk[l].draw(canvas);
+      }
+    }
+  }
+
+  List<GroundMesh> _chunk(int cx, int cy) {
     final key = cx * 100000 + cy;
     final cached = _chunks.remove(key);
     if (cached != null) return _chunks[key] = cached;
-    if (_chunks.length >= maxChunks) _chunks.remove(_chunks.keys.first)!.dispose();
-    return _chunks[key] = recordChunk(cx, cy);
+    if (_chunks.length >= maxChunks) {
+      for (final mesh in _chunks.remove(_chunks.keys.first)!) {
+        mesh.dispose();
+      }
+    }
+    return _chunks[key] = buildChunk(cx, cy);
   }
 
-  /// Rekam lantai satu chunk, dipotong tepat di batasnya (tanpa antialias,
-  /// supaya tidak ada garis sambungan antar-chunk).
-  Picture recordChunk(int cx, int cy) {
+  /// Segitiga lantai satu chunk, per lapis.
+  List<GroundMesh> buildChunk(int cx, int cy) {
     final rect = Rect.fromLTWH(cx * chunkSize, cy * chunkSize, chunkSize, chunkSize);
-    final rec = PictureRecorder();
-    final canvas = Canvas(rec);
-    canvas.clipRect(rect, doAntiAlias: false);
-    canvas.drawRect(rect, _deep);
+    final shallow = TriBuilder(), land = TriBuilder(), curb = TriBuilder(), asphalt = TriBuilder();
+    final marks = TriBuilder();
+    // Pantai melebar satu sel ke chunk tetangga supaya tepi antialias tidak jadi garis sambungan.
     final cells = rect.inflate(mask.cell);
-    canvas.drawPath(_coastPath(cells, (s) => s != Surface.deep), _shallow);
-    canvas.drawPath(_coastPath(cells, (s) => s == Surface.land), _ground);
+    _coast(shallow, cells, (s) => s != Surface.deep, _shallowColor);
+    _coast(land, cells, (s) => s == Surface.land, BColors.tanah);
 
-    final segs = graph.segmentsIn(rect.inflate(10)).toList();
-    for (final s in segs) {
-      final p = s.edge.bridge ? _railPaint : _curbPaint;
-      p.strokeWidth = s.edge.width + _curb * 2;
-      canvas.drawLine(s.a, s.b, p);
+    // Tiap potongan jalan dimiliki tepat satu chunk: ruas dipotong di batas chunk,
+    // ujung bulat hanya di titik sudut polyline yang ada di chunk ini.
+    for (final s in graph.segmentsIn(rect)) {
+      final piece = clipToRect(s.a, s.b, rect);
+      if (piece == null) continue;
+      final (a, b) = piece;
+      final curbColor = s.edge.bridge ? BColors.atapMerah : BColors.trotoar;
+      final curbWidth = s.edge.width + _curb * 2;
+      curb.quadLine(a, b, curbWidth, curbColor);
+      asphalt.quadLine(a, b, s.edge.width, BColors.aspal);
+      for (final p in [if (_needsJoin(s)) s.a, if (s.index == s.edge.pts.length - 2) s.b]) {
+        if (!rect.contains(p)) continue;
+        curb.disc(p, curbWidth / 2, curbColor);
+        asphalt.disc(p, s.edge.width / 2, BColors.aspal);
+      }
+      if (!s.edge.type.endsWith('_link')) _addDashes(marks, s, rect);
     }
-    for (final s in segs) {
-      _asphalt.strokeWidth = s.edge.width;
-      canvas.drawLine(s.a, s.b, _asphalt);
+    for (final x in _crossings) {
+      if (rect.contains(x.center)) _addCrossing(marks, x);
     }
-    final dashes = Path();
-    for (final s in segs) {
-      if (s.edge.type.endsWith('_link')) continue;
-      _addDashes(dashes, s);
-    }
-    canvas.drawPath(dashes, _marking);
-    for (final c in _crossings) {
-      if (rect.inflate(10).contains(c.center)) _drawCrossing(canvas, c);
-    }
-    return rec.endRecording();
+    return [
+      for (final b in [shallow, land, curb, asphalt, marks]) b.build(),
+    ];
+  }
+
+  /// Ujung bulat di titik awal ruas [s] perlu: awal jalan, atau belokan > 12°
+  /// (di belokan landai celah antar-persegi panjang tidak terlihat).
+  static bool _needsJoin(RoadSegment s) {
+    if (s.index == 0) return true;
+    final prev = s.edge.pts[s.index - 1];
+    final d0 = s.a - prev, d1 = s.b - s.a;
+    final cross = d0.dx * d1.dy - d0.dy * d1.dx, dot = d0.dx * d1.dx + d0.dy * d1.dy;
+    return math.atan2(cross.abs(), dot) > 12 * math.pi / 180;
   }
 
   /// Zebra cross: belang putih melintang jalan, sejajar arah jalan.
-  void _drawCrossing(Canvas canvas, _Crossing c) {
-    canvas.save();
-    canvas.translate(c.center.dx, c.center.dy);
-    canvas.rotate(math.atan2(c.dir.dy, c.dir.dx));
-    // Sumbu x = arah jalan; belang selebar 0,7 berjarak 1,4 di sepanjang lebar jalan.
+  void _addCrossing(TriBuilder out, _Crossing c) {
+    // Belang selebar 0,7 berjarak 1,4 di sepanjang lebar jalan, panjang 2,6 searah jalan.
     const stripe = 0.7, pitch = 1.4, length = 2.6;
+    final along = c.dir * (length / 2), across = Offset(-c.dir.dy, c.dir.dx);
     final half = c.width / 2 - 0.5;
     for (var y = -half + stripe / 2; y <= half - stripe / 2 + 1e-6; y += pitch) {
-      canvas.drawRect(Rect.fromCenter(center: Offset(0, y), width: length, height: stripe), _zebra);
+      final m = c.center + across * y;
+      out.quadLine(m - along, m + along, stripe, _zebraColor);
     }
-    canvas.restore();
   }
 
-  /// Wilayah sel yang memenuhi [inside] sebagai Path, dengan marching squares
+  /// Wilayah sel yang memenuhi [inside] sebagai segitiga, dengan marching squares
   /// di antara pusat-pusat sel supaya garis pantai tidak bergerigi kotak.
-  Path _coastPath(Rect view, bool Function(Surface) inside) {
-    final path = Path();
+  void _coast(TriBuilder out, Rect view, bool Function(Surface) inside, Color color) {
     final (c0, r0, c1, r1) = mask.cellRange(view);
     final h = mask.cell / 2;
     final ins = List<bool>.filled(4, false);
@@ -150,7 +166,7 @@ class RoadLayer extends Component with HasGameReference<BatamGame> {
           continue;
         }
         if (runStart >= 0) {
-          path.addRect(Rect.fromPoints(mask.centerOf(runStart, r), mask.centerOf(c, r + 1)));
+          out.rect(Rect.fromPoints(mask.centerOf(runStart, r), mask.centerOf(c, r + 1)), color);
           runStart = -1;
         }
         if (!(ins[0] || ins[1] || ins[2] || ins[3])) continue;
@@ -165,13 +181,13 @@ class RoadLayer extends Component with HasGameReference<BatamGame> {
           if (ins[i]) poly.add(pts[i]);
           if (ins[i] != ins[j]) poly.add((pts[i] + pts[j]) / 2);
         }
-        path.addPolygon(poly, true);
+        // Semua kasus marching squares (termasuk pelana) berbentuk cembung.
+        out.fan(poly, color);
       }
       if (runStart >= 0) {
-        path.addRect(Rect.fromPoints(mask.centerOf(runStart, r), mask.centerOf(c1, r + 1)));
+        out.rect(Rect.fromPoints(mask.centerOf(runStart, r), mask.centerOf(c1, r + 1)), color);
       }
     }
-    return path;
   }
 
   final _routeHalo = Paint()
@@ -201,7 +217,8 @@ class RoadLayer extends Component with HasGameReference<BatamGame> {
     _routeLine.style = PaintingStyle.stroke;
   }
 
-  void _addDashes(Path path, RoadSegment s) {
+  /// Marka putus-putus ruas [s] yang titik tengahnya ada di [chunk].
+  void _addDashes(TriBuilder out, RoadSegment s, Rect chunk) {
     const period = _dash + _gap;
     final len = s.length;
     if (len == 0) return;
@@ -210,16 +227,11 @@ class RoadLayer extends Component with HasGameReference<BatamGame> {
     while (k * period < s.startDist + len) {
       final from = math.max(k * period, s.startDist) - s.startDist;
       final to = math.min(k * period + _dash, s.startDist + len) - s.startDist;
-      if (to > from) {
-        final a = s.a + dir * from, b = s.a + dir * to;
-        path
-          ..moveTo(a.dx, a.dy)
-          ..lineTo(b.dx, b.dy);
-      }
+      final a = s.a + dir * from, b = s.a + dir * to;
+      if (to > from && chunk.contains((a + b) / 2)) out.quadLine(a, b, _markWidth, BColors.kuning);
       k++;
     }
   }
-
 }
 
 /// Satu zebra cross: titik tengah di as jalan, arah jalan, dan lebar aspal.
@@ -238,7 +250,9 @@ List<_Crossing> _findCrossings(RoadGraph graph) {
   for (final MapEntry(key: node, value: edges) in graph.adjacency.entries) {
     final legs = edges.where((e) => !e.type.endsWith('_link') && !e.bridge).toList();
     if (legs.length < 3) continue;
-    if (!legs.any((e) => e.type.startsWith('trunk') || e.type.startsWith('primary') || e.type.startsWith('secondary'))) {
+    if (!legs.any(
+      (e) => e.type.startsWith('trunk') || e.type.startsWith('primary') || e.type.startsWith('secondary'),
+    )) {
       continue;
     }
     final at = graph.nodes[node]!;
