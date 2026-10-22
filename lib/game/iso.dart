@@ -49,16 +49,9 @@ Vector2 screenDirToGround(Vector2 s) {
 /// Prioritas gambar dari kedalaman tanah `x + y`: makin ke depan (bawah layar), makin atas.
 int isoDepth(Vector2 g, [double bias = 0]) => (g.x + g.y + bias).toInt();
 
-/// Bangunan lama: (0,0) = tengah depan lantai, lantai memanjang 12 unit ke utara.
-/// Geser sprite supaya tengah lantainya (0,−6) jatuh di titik iso tengah lantai.
-const buildingSpriteOffset = Offset(6, 3);
-
 /// Komponen yang [position]-nya koordinat tanah, tetapi digambar tegak di titik
 /// layar iso-nya (sprite tidak ikut miring). Sudut/skala/anchor tidak dipakai.
 mixin IsoPlaced on PositionComponent {
-  /// Geseran tambahan di layar untuk sprite yang titik (0,0)-nya bukan titik pijak.
-  Offset get spriteOffset => Offset.zero;
-
   @override
   FutureOr<void> onLoad() {
     decorator = IsoDecorator(this);
@@ -76,8 +69,7 @@ class IsoDecorator extends Decorator {
   void apply(void Function(Canvas) draw, Canvas canvas) {
     final p = component.position;
     canvas.save();
-    final o = component.spriteOffset;
-    canvas.translate(p.x - p.y + o.dx, (p.x + p.y) / 2 + o.dy);
+    canvas.translate(p.x - p.y, (p.x + p.y) / 2);
     draw(canvas);
     canvas.restore();
   }

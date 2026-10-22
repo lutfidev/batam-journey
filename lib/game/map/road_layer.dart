@@ -6,25 +6,31 @@ import 'package:flame/components.dart';
 import '../../ui/palette.dart';
 import '../batam_game.dart';
 import '../iso.dart';
+import '../city/city_gen.dart' show chunkSize;
 import 'land_mask.dart';
 import 'road_graph.dart';
 
-/// Menggambar laut, tanah, pohon, dan jalan yang terlihat kamera saja.
-/// Urutan lapis: trotoar semua jalan → aspal → marka, supaya simpang menyatu.
-/// Lantai digambar di koordinat tanah lewat [isoMatrix]; pohon tegak di titik iso-nya.
+/// Menggambar laut, tanah, dan jalan. Lantai tiap chunk 1×1 km direkam sekali
+/// jadi [Picture] (dicache), lalu diputar ulang tiap frame; hanya rute GPS yang
+/// digambar langsung. Urutan lapis di dalam chunk: laut → darat → trotoar semua
+/// jalan → aspal → marka & zebra cross, supaya simpang menyatu.
+/// Lantai digambar di koordinat tanah lewat [isoMatrix].
 class RoadLayer extends Component with HasGameReference<BatamGame> {
-  RoadLayer(this.graph) : super(priority: -1000000000);
+  RoadLayer(this.graph, this.mask) : super(priority: -1000000000);
 
   final RoadGraph graph;
+
+  /// Mask darat/laut. Dipakai juga oleh pemain, motor, dan kota.
+  final LandMask mask;
 
   static const _curb = 1.2;
   static const _dash = 2.2;
   static const _gap = 1.6;
 
-  /// Mask darat/laut, siap setelah [onLoad]. Dipakai juga oleh pemain & motor.
-  late final LandMask mask;
-
   static const _shallowColor = Color(0xFF7FCCDA);
+
+  /// Chunk yang disimpan paling banyak; yang paling lama tidak terlihat dibuang.
+  static const maxChunks = 24;
 
   final _ground = Paint()..color = BColors.tanah;
   final _deep = Paint()..color = BColors.laut;
@@ -45,33 +51,48 @@ class RoadLayer extends Component with HasGameReference<BatamGame> {
     ..style = PaintingStyle.stroke
     ..strokeWidth = 0.35
     ..color = BColors.kuning;
-  final _treeShadow = Paint()..color = const Color(0x33000000);
-  final _treeA = Paint()..color = BColors.hutan;
-  final _treeB = Paint()..color = BColors.hutanGelap;
-  final _treeHi = Paint()..color = const Color(0xFFA9D58F);
-  final _treeLine = Paint()
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 0.15
-    ..color = const Color(0x552B1D12);
+  final _zebra = Paint()..color = const Color(0xFFF4F1EA);
 
-  final _trees = <int, List<_Tree>>{};
+  /// Kunci chunk → gambar lantai; urutan sisip = urutan terakhir dipakai.
+  final _chunks = <int, Picture>{};
 
-  @override
-  Future<void> onLoad() async {
-    mask = await LandMask.fromImage(game.mapImage, graph.size);
-  }
+  late final List<_Crossing> _crossings = _findCrossings(graph);
 
   @override
   void render(Canvas canvas) {
     final view = groundRectOf(game.camera.visibleWorldRect).inflate(4);
     canvas.save();
     canvas.transform(isoMatrix);
-    canvas.drawRect(view, _deep);
-    canvas.drawPath(_coastPath(view, (s) => s != Surface.deep), _shallow);
-    canvas.drawPath(_coastPath(view, (s) => s == Surface.land), _ground);
+    for (var cy = (view.top / chunkSize).floor(); cy <= (view.bottom / chunkSize).floor(); cy++) {
+      for (var cx = (view.left / chunkSize).floor(); cx <= (view.right / chunkSize).floor(); cx++) {
+        canvas.drawPicture(_chunk(cx, cy));
+      }
+    }
+    _renderRoute(canvas);
+    canvas.restore();
+  }
 
-    final segs = graph.segmentsIn(view).toList();
+  Picture _chunk(int cx, int cy) {
+    final key = cx * 100000 + cy;
+    final cached = _chunks.remove(key);
+    if (cached != null) return _chunks[key] = cached;
+    if (_chunks.length >= maxChunks) _chunks.remove(_chunks.keys.first)!.dispose();
+    return _chunks[key] = recordChunk(cx, cy);
+  }
 
+  /// Rekam lantai satu chunk, dipotong tepat di batasnya (tanpa antialias,
+  /// supaya tidak ada garis sambungan antar-chunk).
+  Picture recordChunk(int cx, int cy) {
+    final rect = Rect.fromLTWH(cx * chunkSize, cy * chunkSize, chunkSize, chunkSize);
+    final rec = PictureRecorder();
+    final canvas = Canvas(rec);
+    canvas.clipRect(rect, doAntiAlias: false);
+    canvas.drawRect(rect, _deep);
+    final cells = rect.inflate(mask.cell);
+    canvas.drawPath(_coastPath(cells, (s) => s != Surface.deep), _shallow);
+    canvas.drawPath(_coastPath(cells, (s) => s == Surface.land), _ground);
+
+    final segs = graph.segmentsIn(rect.inflate(10)).toList();
     for (final s in segs) {
       final p = s.edge.bridge ? _railPaint : _curbPaint;
       p.strokeWidth = s.edge.width + _curb * 2;
@@ -87,11 +108,24 @@ class RoadLayer extends Component with HasGameReference<BatamGame> {
       _addDashes(dashes, s);
     }
     canvas.drawPath(dashes, _marking);
+    for (final c in _crossings) {
+      if (rect.inflate(10).contains(c.center)) _drawCrossing(canvas, c);
+    }
+    return rec.endRecording();
+  }
 
-    _renderRoute(canvas);
+  /// Zebra cross: belang putih melintang jalan, sejajar arah jalan.
+  void _drawCrossing(Canvas canvas, _Crossing c) {
+    canvas.save();
+    canvas.translate(c.center.dx, c.center.dy);
+    canvas.rotate(math.atan2(c.dir.dy, c.dir.dx));
+    // Sumbu x = arah jalan; belang selebar 0,7 berjarak 1,4 di sepanjang lebar jalan.
+    const stripe = 0.7, pitch = 1.4, length = 2.6;
+    final half = c.width / 2 - 0.5;
+    for (var y = -half + stripe / 2; y <= half - stripe / 2 + 1e-6; y += pitch) {
+      canvas.drawRect(Rect.fromCenter(center: Offset(0, y), width: length, height: stripe), _zebra);
+    }
     canvas.restore();
-
-    _renderTrees(canvas, view);
   }
 
   /// Wilayah sel yang memenuhi [inside] sebagai Path, dengan marching squares
@@ -186,65 +220,46 @@ class RoadLayer extends Component with HasGameReference<BatamGame> {
     }
   }
 
-  // Pohon ditempatkan deterministik per sel 20×20 dan hanya di luar jalan,
-  // tidak di laut, supaya ada patokan gerak saat berjalan/berkendara.
-  static const _treeCell = 20.0;
-
-  void _renderTrees(Canvas canvas, Rect view) {
-    final x0 = (view.left / _treeCell).floor(), x1 = (view.right / _treeCell).floor();
-    final y0 = (view.top / _treeCell).floor(), y1 = (view.bottom / _treeCell).floor();
-    final trees = [
-      for (var cy = y0; cy <= y1; cy++)
-        for (var cx = x0; cx <= x1; cx++) ..._treesFor(cx, cy),
-    ]..sort((a, b) => (a.pos.dx + a.pos.dy).compareTo(b.pos.dx + b.pos.dy));
-    for (final t in trees) {
-      // Tajuk bulat tegak di atas titik pijaknya, bayangan lonjong di tanah.
-      final base = isoOf(t.pos);
-      final c = base - Offset(0, t.r * 0.9);
-      canvas.drawOval(Rect.fromCenter(center: base, width: t.r * 2.4, height: t.r * 1.2), _treeShadow);
-      final paint = t.dark ? _treeB : _treeA;
-      canvas.drawCircle(c, t.r, paint);
-      canvas.drawCircle(c, t.r, _treeLine);
-      canvas.drawCircle(c - Offset(t.r * 0.3, t.r * 0.35), t.r * 0.45, t.dark ? _treeA : _treeHi);
-    }
-  }
-
-  List<_Tree> _treesFor(int cx, int cy) {
-    final key = cx * 100000 + cy;
-    return _trees[key] ??= () {
-      final rnd = math.Random(key * 2654435761 & 0x7fffffff);
-      final out = <_Tree>[];
-      final n = rnd.nextInt(4);
-      for (var i = 0; i < n; i++) {
-        final pos = Offset((cx + rnd.nextDouble()) * _treeCell, (cy + rnd.nextDouble()) * _treeCell);
-        final r = 1.6 + rnd.nextDouble() * 1.6;
-        if (mask.isLand(pos) &&
-            mask.isLand(pos + Offset(r, r)) &&
-            mask.isLand(pos - Offset(r, r)) &&
-            graph.clearance(pos, maxDist: 12) > r + 2.5 &&
-            !game.isNearBuilding(pos, r)) {
-          out.add(_Tree(pos, r, rnd.nextBool()));
-        }
-      }
-      return out;
-    }();
-  }
 }
 
-class _Tree {
-  _Tree(this.pos, this.r, this.dark);
+/// Satu zebra cross: titik tengah di as jalan, arah jalan, dan lebar aspal.
+class _Crossing {
+  const _Crossing(this.center, this.dir, this.width);
 
-  final Offset pos;
-  final double r;
-  final bool dark;
+  final Offset center;
+  final Offset dir;
+  final double width;
+}
+
+/// Zebra cross di tiap kaki simpang (≥ 3 jalan bukan ramp) yang melibatkan
+/// jalan besar, sedikit sebelum mulut simpang.
+List<_Crossing> _findCrossings(RoadGraph graph) {
+  final out = <_Crossing>[];
+  for (final MapEntry(key: node, value: edges) in graph.adjacency.entries) {
+    final legs = edges.where((e) => !e.type.endsWith('_link') && !e.bridge).toList();
+    if (legs.length < 3) continue;
+    if (!legs.any((e) => e.type.startsWith('trunk') || e.type.startsWith('primary') || e.type.startsWith('secondary'))) {
+      continue;
+    }
+    final at = graph.nodes[node]!;
+    final mouth = legs.map((e) => e.width).reduce(math.max) / 2 + 2.5;
+    for (final e in legs) {
+      // Arah keluar dari simpang di sepanjang kaki ini.
+      final pts = e.from == node ? e.pts : e.pts.reversed.toList();
+      if (pts.length < 2) continue;
+      final d0 = pts[1] - pts[0];
+      if (d0.distance < mouth + 2) continue;
+      final dir = d0 / d0.distance;
+      out.add(_Crossing(at + dir * mouth, dir, e.width));
+    }
+  }
+  return out;
 }
 
 extension SeaBlock on BatamGame {
   /// True bila [p] ada di air (mask) dan bukan di jalan/jembatan.
-  /// Sebelum mask siap, tidak ada yang diblokir.
-  bool isWaterBlocked(Offset p) {
-    final layer = world.firstChild<RoadLayer>();
-    if (layer == null || !layer.isLoaded) return false;
-    return layer.mask.isWater(p) && !graph.isOnRoad(p);
-  }
+  bool isWaterBlocked(Offset p) => mask.isWater(p) && !graph.isOnRoad(p);
+
+  /// True bila [p] di air atau di dalam bangunan (tidak bisa dilewati).
+  bool isBlocked(Offset p) => isWaterBlocked(p) || city.blocks(p);
 }

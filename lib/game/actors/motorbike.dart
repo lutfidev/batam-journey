@@ -113,10 +113,11 @@ class Motorbike extends PositionComponent with HasGameReference<BatamGame>, IsoP
     if (ridden) _steer(dt);
 
     final next = position + Vector2(math.cos(heading), math.sin(heading)) * speed * dt;
-    // Pantai: motor memantul mundur sedikit, kecuali sudah terlanjur di air
-    // (mis. spawn lama) supaya tetap bisa keluar.
-    if (game.isWaterBlocked(next.toOffset()) && !game.isWaterBlocked(position.toOffset())) {
-      if (ridden && speed.abs() > 4) game.toast.value = 'Itu laut! Putar balik';
+    // Pantai/bangunan: motor memantul mundur sedikit, kecuali sudah terlanjur di
+    // dalamnya (mis. spawn lama) supaya tetap bisa keluar.
+    final here = position.toOffset(), there = next.toOffset();
+    if (game.isBlocked(there) && !game.isBlocked(here)) {
+      if (ridden && speed.abs() > 4 && game.isWaterBlocked(there)) game.toast.value = 'Itu laut! Putar balik';
       speed = -speed.sign * math.max(speed.abs() * 0.3, 1.5);
     } else {
       position.setFrom(next);
