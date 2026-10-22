@@ -61,6 +61,21 @@ Urutan boleh digeser.
 - [ ] 17. `feat/ringkasan-koleksi`: ringkasan harian (desain `08`) dan koleksi/pencapaian
       (desain `18`).
 
+## C. Aset Blender (mulai Desember 2026)
+Baru dikerjakan mulai Desember 2026, sekarang hanya to-do. Tujuannya meningkatkan model low-poly
+dari langkah 2–5 menjadi model Blender yang lebih detail. Kode game tetap memakai format sprite
+16 arah yang sama.
+
+- [ ] 18. `feat/blender-pipeline`: pemilik repo memasang Blender.
+      - Script Python di `tools/blender/` menjalankan Blender tanpa layar (`blender --background`).
+      - Kamera ortografis isometrik 2:1, cahaya, dan gaya kartun: toon shading + outline tinta
+        `#2B1D12`.
+      - Hasilnya sprite sheet PNG 16 arah di `assets/images/`.
+- [ ] 19. `feat/blender-slime-motor`: model slime (pakai animasi kenyal) dan motor (miring saat
+      belok, roda berputar) dibuat di Blender, lalu dirender jadi frame animasi.
+- [ ] 20. `feat/blender-kota`: bangunan dibuat di Blender: SPBU, bengkel, rumah, ruko, blok kota,
+      pohon, dan lampu jalan.
+
 ## Catatan
 - Rasa setir joystick belum pernah dicoba langsung di HP, karena adb hanya bisa satu sentuhan.
   Dicoba bersama langkah 4.
