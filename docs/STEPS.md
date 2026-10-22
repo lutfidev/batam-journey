@@ -88,8 +88,9 @@ selesai saat November, aset yang tersisa langsung dibuat di Blender.
 - Format sprite bersama (atlas 16 arah × frame, JSON pendamping PNG) dijelaskan di
   `lib/game/sprites/sprite_sheet.dart`; sumber per aset diatur di `spriteSources`
   (`lib/game/sprites/sprite_library.dart`). Script Blender di bagian C harus menulis format ini.
-- Rasa setir joystick belum pernah dicoba langsung di HP, karena adb hanya bisa satu sentuhan.
-  Dicoba bersama langkah 4.
+- Langkah 4: di HP sudah dicoba gas saja (assist lajur mengikuti jalan), rem, dan belok dengan
+  joystick saat motor meluncur. Setir sambil gas belum bisa dicoba lewat adb (hanya satu sentuhan);
+  pemilik repo perlu mencobanya langsung.
 - Tiap langkah dicek di HP uji (build release lewat adb). Screenshot sebelum/sesudah dilampirkan di
   badan PR.
 
