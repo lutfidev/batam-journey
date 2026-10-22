@@ -166,15 +166,9 @@ class GameHud extends StatelessWidget {
     final c = game.controls;
     return [
       Positioned(
-        left: 12,
-        bottom: 12,
-        child: Row(
-          children: [
-            _RoundButton(label: 'Belok kiri', icon: _Chevron(left: true), onHold: (v) => c.leftBtn = v),
-            const SizedBox(width: 10),
-            _RoundButton(label: 'Belok kanan', icon: _Chevron(left: false), onHold: (v) => c.rightBtn = v),
-          ],
-        ),
+        left: 20,
+        bottom: 20,
+        child: Joystick(label: 'Joystick setir', onChanged: (v) => c.stick.setValues(v.dx, v.dy)),
       ),
       Positioned(
         left: 0,
@@ -826,71 +820,6 @@ class _Speedometer extends StatelessWidget {
       ),
     );
   }
-}
-
-class _RoundButton extends StatelessWidget {
-  const _RoundButton({required this.label, required this.icon, required this.onHold});
-
-  final String label;
-  final Widget icon;
-  final ValueChanged<bool> onHold;
-
-  @override
-  Widget build(BuildContext context) {
-    return GameButton(
-      width: 62,
-      height: 62,
-      radius: 31,
-      color: BColors.cream.withValues(alpha: 0.92),
-      semanticLabel: label,
-      onHold: onHold,
-      child: icon,
-    );
-  }
-}
-
-class _Chevron extends StatelessWidget {
-  const _Chevron({required this.left});
-
-  final bool left;
-
-  @override
-  Widget build(BuildContext context) => CustomPaint(size: const Size(26, 26), painter: _ChevronPainter(left));
-}
-
-class _ChevronPainter extends CustomPainter {
-  _ChevronPainter(this.left);
-
-  final bool left;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final s = size.width / 24;
-    final p = Path();
-    if (left) {
-      p
-        ..moveTo(15 * s, 5 * s)
-        ..lineTo(8 * s, 12 * s)
-        ..lineTo(15 * s, 19 * s);
-    } else {
-      p
-        ..moveTo(9 * s, 5 * s)
-        ..lineTo(16 * s, 12 * s)
-        ..lineTo(9 * s, 19 * s);
-    }
-    canvas.drawPath(
-      p,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3 * s
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..color = BColors.ink,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_ChevronPainter old) => old.left != left;
 }
 
 class _MapIcon extends CustomPainter {
