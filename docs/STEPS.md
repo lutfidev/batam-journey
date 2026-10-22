@@ -22,6 +22,12 @@ Dikerjakan dulu, berurutan.
       - Bentuk dasar: kotak, silinder, bola, ekstrusi.
       - Cahaya searah dan outline tinta.
       - Dipanggang jadi sprite 16 arah lalu di-cache. Ada test render ke PNG.
+      - **Format sprite bersama:** 16 arah × N frame per animasi, titik pijak di kaki/tanah,
+        dan skala piksel → satuan dunia. Kode game hanya membaca format ini.
+      - Sumber sprite ditentukan per aset: dipanggang dari model Dart, atau dimuat dari PNG
+        sprite sheet di `assets/images/` (hasil Blender, bagian C).
+      - Dengan begitu, di November aset bisa diganti ke Blender satu per satu tanpa mengubah
+        kamera, fisika, aturan animasi, atau tata letak kota dari langkah 1–5.
 - [ ] 3. `feat/slime-3d`: slime 3D baru (volume, kilap, mata ekspresif) dengan 16 arah.
       - Animasi kenyal: squash-stretch, toleh halus, debu langkah.
       - Jalan kaki pakai percepatan/perlambatan (tidak meluncur).
@@ -64,7 +70,9 @@ Urutan boleh digeser.
 ## C. Aset Blender (mulai November 2026)
 Baru dikerjakan mulai November 2026, sekarang hanya to-do. Tujuannya meningkatkan model low-poly
 dari langkah 2–5 menjadi model Blender yang lebih detail. Kode game tetap memakai format sprite
-16 arah yang sama.
+bersama dari langkah 2. Kalau langkah 1–5 sudah selesai, yang diganti hanya gambarnya, per aset.
+Kamera, fisika motor, aturan animasi, dan tata letak kota tetap dipakai. Kalau langkah 2–5 belum
+selesai saat November, aset yang tersisa langsung dibuat di Blender.
 
 - [ ] 18. `feat/blender-pipeline`: pemilik repo memasang Blender.
       - Script Python di `tools/blender/` menjalankan Blender tanpa layar (`blender --background`).
