@@ -24,7 +24,9 @@ class Motorbike extends PositionComponent with HasGameReference<BatamGame> {
   static const accel = 14.0;
   static const brakeDecel = 30.0;
   static const drag = 5.0;
-  static const turnRate = 2.4; // rad/detik pada kecepatan penuh setir
+  static const turnRate = 4.5; // rad/detik pada grip penuh
+  static const minGrip = 0.35; // supaya tetap bisa belok saat pelan
+  static const sharpTurnDecel = 8.0; // pengurangan laju saat belok > 90°
 
   /// Faktor tampilan km/j per unit/detik (28 u/s ≈ 70 km/j).
   static const kmhPerUnit = 2.5;
@@ -48,11 +50,10 @@ class Motorbike extends PositionComponent with HasGameReference<BatamGame> {
 
   double get speedKmh => speed.abs() * kmhPerUnit;
 
-  Facing get facing {
-    final c = math.cos(heading), s = math.sin(heading);
-    if (c.abs() >= 0.5) return Facing.side;
-    return s > 0 ? Facing.down : Facing.up;
-  }
+  /// Arah gambar (0..7) dengan histeresis supaya tidak berkedip di batas.
+  int _octant = 0;
+
+  MotorPose get pose => poseFor(_octant);
 
   @override
   void update(double dt) {
@@ -80,10 +81,13 @@ class Motorbike extends PositionComponent with HasGameReference<BatamGame> {
     if (speed > top) speed = math.max(top, speed - brakeDecel * dt);
     speed = speed.clamp(-maxReverse, maxSpeed * FuelGrade.turbo.speedBonus * math.max(1, ws.speedFactor));
 
-    if (ridden && speed.abs() > 0.1) {
-      final steer = (c.right ? 1 : 0) - (c.left ? 1 : 0);
-      final grip = (speed.abs() / 8).clamp(0.0, 1.0);
-      heading += steer * turnRate * grip * dt * speed.sign;
+    // Setir mengikuti arah joystick di layar: moncong motor diputar ke arah itu.
+    final stick = c.move;
+    if (ridden && speed.abs() > 0.1 && stick.length2 > 0.04) {
+      final target = math.atan2(stick.y, stick.x);
+      final grip = (speed.abs() / 8).clamp(minGrip, 1.0);
+      if (speed > 6 && wrapAngle(target - heading).abs() > math.pi / 2) speed -= sharpTurnDecel * dt;
+      heading = wrapAngle(steerToward(heading, target, turnRate * grip * dt));
     }
 
     final next = position + Vector2(math.cos(heading), math.sin(heading)) * speed * dt;
@@ -98,6 +102,7 @@ class Motorbike extends PositionComponent with HasGameReference<BatamGame> {
     if (ridden) tank.consume(speed.abs() * dt);
     game.clampToWorld(position);
     _wheel += speed * dt * 0.9;
+    _octant = octantWithHysteresis(_octant, heading);
     priority = position.y.toInt();
   }
 
@@ -105,9 +110,42 @@ class Motorbike extends PositionComponent with HasGameReference<BatamGame> {
   void render(Canvas canvas) {
     canvas.save();
     canvas.scale(spriteScale);
-    final f = facing;
-    if (f == Facing.side && math.cos(heading) < 0) canvas.scale(-1, 1);
-    drawMotor(canvas, f, rider: ridden, wheelSpin: _wheel);
+    final p = pose;
+    if (p.flip) canvas.scale(-1, 1);
+    drawMotor(canvas, p.facing, rider: ridden, wheelSpin: _wheel);
     canvas.restore();
   }
 }
+
+/// Pose gambar motor: arah tampak dan apakah dicerminkan (menghadap kiri).
+typedef MotorPose = ({Facing facing, bool flip});
+
+/// Sudut dinormalisasi ke -π..π.
+double wrapAngle(double a) => (a + math.pi) % (2 * math.pi) - math.pi;
+
+/// Putar [heading] ke [target] lewat jalan terpendek, paling banyak [maxStep] radian.
+double steerToward(double heading, double target, double maxStep) {
+  final d = wrapAngle(target - heading);
+  return d.abs() <= maxStep ? heading + d : heading + maxStep * d.sign;
+}
+
+/// Arah 8 penjuru dari [heading]: 0 = timur, 2 = selatan (bawah layar), 4 = barat, 6 = utara.
+int octantOf(double heading) => (wrapAngle(heading) / (math.pi / 4)).round() % 8;
+
+/// Seperti [octantOf], tapi tetap di [current] sampai [heading] lewat batas bin lebih dari 5°.
+int octantWithHysteresis(int current, double heading) {
+  const margin = 5 * math.pi / 180;
+  final off = wrapAngle(heading - current * math.pi / 4).abs();
+  return off > math.pi / 8 + margin ? octantOf(heading) : current;
+}
+
+MotorPose poseFor(int octant) => switch (octant % 8) {
+  0 => (facing: Facing.side, flip: false),
+  1 => (facing: Facing.downSide, flip: false),
+  2 => (facing: Facing.down, flip: false),
+  3 => (facing: Facing.downSide, flip: true),
+  4 => (facing: Facing.side, flip: true),
+  5 => (facing: Facing.upSide, flip: true),
+  6 => (facing: Facing.up, flip: false),
+  _ => (facing: Facing.upSide, flip: false),
+};

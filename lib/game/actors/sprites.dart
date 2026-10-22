@@ -9,7 +9,8 @@ import '../../ui/palette.dart';
 /// Semua koordinat di sini memakai piksel desain (layar 844×390);
 /// pemanggil men-scale ke satuan dunia.
 
-enum Facing { down, up, side }
+/// Arah tampak sprite. Arah kiri digambar dengan mencerminkan arah kanan.
+enum Facing { down, downSide, side, upSide, up }
 
 final _skin = Paint();
 final _ink = Paint()..color = BColors.ink;
@@ -150,6 +151,8 @@ void drawWalker(Canvas canvas, Facing facing, double phase, double lookX, bool m
 void drawMotor(Canvas canvas, Facing facing, {required bool rider, double wheelSpin = 0}) {
   switch (facing) {
     case Facing.side:
+    case Facing.downSide:
+    case Facing.upSide:
       _motorSide(canvas, rider, wheelSpin);
     case Facing.down:
     case Facing.up:
