@@ -46,18 +46,6 @@ Vector2 screenDirToGround(Vector2 s) {
   return g..scale(len);
 }
 
-/// Arah tanah → arah di layar (ternormalisasi), untuk memilih pose sprite.
-Vector2 groundDirToScreen(Vector2 g) {
-  final s = isoOfV(g);
-  return s.length2 == 0 ? Vector2(0, 1) : s.normalized();
-}
-
-/// Sudut tampak di layar (0 = kanan layar) dari sudut hadap di tanah.
-double screenHeadingOf(double groundHeading) {
-  final s = isoOf(Offset(math.cos(groundHeading), math.sin(groundHeading)));
-  return math.atan2(s.dy, s.dx);
-}
-
 /// Prioritas gambar dari kedalaman tanah `x + y`: makin ke depan (bawah layar), makin atas.
 int isoDepth(Vector2 g, [double bias = 0]) => (g.x + g.y + bias).toInt();
 

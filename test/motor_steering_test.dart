@@ -1,7 +1,9 @@
 import 'dart:math' as math;
 
 import 'package:batam_the_journey_begins/game/actors/motorbike.dart';
-import 'package:batam_the_journey_begins/game/actors/sprites.dart';
+import 'package:batam_the_journey_begins/game/map/road_graph.dart';
+import 'package:batam_the_journey_begins/game/model3d/models/motor.dart';
+import 'package:flame/components.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const deg = math.pi / 180;
@@ -34,34 +36,93 @@ void main() {
     });
   });
 
-  group('pose motor 8 arah', () {
-    test('octantOf memetakan heading ke penjuru terdekat', () {
-      expect(octantOf(0), 0);
-      expect(octantOf(44 * deg), 1);
-      expect(octantOf(90 * deg), 2);
-      expect(octantOf(180 * deg), 4);
-      expect(octantOf(-180 * deg), 4);
-      expect(octantOf(-90 * deg), 6);
-      expect(octantOf(-30 * deg), 7);
+  group('gas & rem bertahap', () {
+    test('gas naik ke penuh dalam ±0,4 detik, turun cepat saat dilepas', () {
+      var t = 0.0;
+      for (var i = 0; i < 6; i++) {
+        t = approach(t, 1, Motorbike.throttleRise / 60);
+      }
+      expect(t, closeTo(0.25, 1e-9)); // 0,1 detik: baru seperempat
+      for (var i = 0; i < 24; i++) {
+        t = approach(t, 1, Motorbike.throttleRise / 60);
+      }
+      expect(t, 1);
+      for (var i = 0; i < 8; i++) {
+        t = approach(t, 0, Motorbike.releaseRate / 60);
+      }
+      expect(t, 0);
     });
 
-    test('poseFor: kanan apa adanya, kiri dicerminkan', () {
-      expect(poseFor(0), (facing: Facing.side, flip: false));
-      expect(poseFor(1), (facing: Facing.downSide, flip: false));
-      expect(poseFor(2), (facing: Facing.down, flip: false));
-      expect(poseFor(3), (facing: Facing.downSide, flip: true));
-      expect(poseFor(4), (facing: Facing.side, flip: true));
-      expect(poseFor(5), (facing: Facing.upSide, flip: true));
-      expect(poseFor(6), (facing: Facing.up, flip: false));
-      expect(poseFor(7), (facing: Facing.upSide, flip: false));
+    test('tarikan kuat saat pelan, melemah dekat laju puncak', () {
+      expect(driveAccel(0, 0, 28), 0);
+      expect(driveAccel(1, 0, 28), closeTo(Motorbike.accel * 1.3, 1e-9));
+      expect(driveAccel(1, 27, 28), lessThan(driveAccel(1, 5, 28)));
+      expect(driveAccel(0.5, 0, 28), closeTo(driveAccel(1, 0, 28) / 2, 1e-9));
+    });
+  });
+
+  group('miring saat belok', () {
+    test('belok kanan = miring kanan, makin cepat makin miring, dibatasi', () {
+      expect(leanFor(1, 10), greaterThan(0));
+      expect(leanFor(-1, 10), lessThan(0));
+      expect(leanFor(1, 20), greaterThan(leanFor(1, 10)));
+      expect(leanFor(1, 0), 0);
+      expect(leanFor(10, 28), motorMaxLean);
+    });
+  });
+
+  group('assist lajur', () {
+    RoadSegment road({bool oneway = false}) {
+      final e = RoadEdge(
+        index: 0,
+        from: 0,
+        to: 1,
+        pts: const [Offset(0, 0), Offset(100, 0)],
+        type: 'primary',
+        name: null,
+        oneway: oneway,
+        bridge: false,
+        width: 10,
+      );
+      return RoadSegment(const Offset(0, 0), const Offset(100, 0), e, 0, 0);
+    }
+
+    test('ke timur di tengah jalan: ditarik ke lajur kiri (utara)', () {
+      final l = laneHeading(const Offset(50, 0), 0.1, road());
+      expect(l.road, closeTo(0, 1e-9));
+      expect(l.lane, lessThan(0));
+      expect(l.lane, greaterThanOrEqualTo(-10 * deg - 1e-9));
     });
 
-    test('histeresis: tidak pindah pose tepat di batas, pindah setelah lewat 5°', () {
-      expect(octantWithHysteresis(0, 24 * deg), 0);
-      expect(octantWithHysteresis(0, 26 * deg), 0);
-      expect(octantWithHysteresis(0, 31 * deg), 1);
-      expect(octantWithHysteresis(1, 20 * deg), 1);
-      expect(octantWithHysteresis(1, 15 * deg), 0);
+    test('sudah di tengah lajur kiri: lurus mengikuti jalan', () {
+      final l = laneHeading(const Offset(50, -2.5), 0, road());
+      expect(l.lane, closeTo(0, 1e-9));
+    });
+
+    test('ke barat: arah jalan dibalik dan lajur kirinya di selatan', () {
+      final l = laneHeading(const Offset(50, 0), 3.0, road());
+      expect(l.road.abs(), closeTo(math.pi, 1e-9));
+      expect(math.sin(l.lane), greaterThan(0)); // condong ke +y (selatan)
+    });
+
+    test('jalan satu arah: tetap di tengah', () {
+      final l = laneHeading(const Offset(50, 0), 0, road(oneway: true));
+      expect(l.lane, closeTo(0, 1e-9));
+    });
+
+    test('blendAngle lewat jalan terpendek', () {
+      expect(blendAngle(170 * deg, -170 * deg, 0.5).abs(), closeTo(math.pi, 1e-9));
+      expect(blendAngle(0, 20 * deg, 0.5), closeTo(10 * deg, 1e-9));
+    });
+  });
+
+  group('kamera melihat ke depan', () {
+    test('searah laju, sebanding kecepatan, tidak saat mundur', () {
+      final slow = lookAheadOf(0, 10), fast = lookAheadOf(0, 28);
+      expect(slow.y, closeTo(0, 1e-9));
+      expect(fast.x, greaterThan(slow.x));
+      expect(lookAheadOf(math.pi / 2, 20).y, greaterThan(0));
+      expect(lookAheadOf(0, -4), Vector2.zero());
     });
   });
 }
