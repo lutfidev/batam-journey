@@ -6,7 +6,9 @@ import 'package:batam_the_journey_begins/game/iso.dart';
 import 'package:batam_the_journey_begins/game/model3d/bake.dart';
 import 'package:batam_the_journey_begins/game/model3d/mesh.dart';
 import 'package:batam_the_journey_begins/game/model3d/models/pin_tujuan.dart';
+import 'package:batam_the_journey_begins/game/model3d/models/slime.dart';
 import 'package:batam_the_journey_begins/game/model3d/raster.dart';
+import 'package:batam_the_journey_begins/game/sprites/bake_cache.dart';
 import 'package:batam_the_journey_begins/game/sprites/sprite_library.dart';
 import 'package:batam_the_journey_begins/game/sprites/sprite_sheet.dart';
 import 'package:flutter/painting.dart' show Color, Offset;
@@ -43,7 +45,12 @@ Offset _centroidOf(RasterImage img, bool Function(Color) match) {
 RasterImage _render(Model m, {double yaw = 0, double ppu = 32}) {
   var bounds = projectedBounds(m, yaw);
   bounds = bounds.expandToInclude(ui.Rect.zero);
-  return renderModel(m, yaw: yaw, pixelsPerUnit: ppu, frame: PixelFrame.around(bounds, ppu, pad: const RenderStyle().padPx));
+  return renderModel(
+    m,
+    yaw: yaw,
+    pixelsPerUnit: ppu,
+    frame: PixelFrame.around(bounds, ppu, pad: const RenderStyle().padPx),
+  );
 }
 
 Future<void> _writePng(ui.Image image, String name) async {
@@ -52,6 +59,13 @@ Future<void> _writePng(ui.Image image, String name) async {
   file.parent.createSync(recursive: true);
   file.writeAsBytesSync(bytes!.buffer.asUint8List());
 }
+
+/// Aset kecil untuk tes panggang paralel & cache.
+const _cubeAsset = ModelAsset(pixelsPerUnit: 12, animations: [SpriteAnim('idle', frames: 2)], build: _cube);
+const _cubeTallAsset = ModelAsset(pixelsPerUnit: 12, animations: [SpriteAnim('idle', frames: 2)], build: _cubeTall);
+
+Model _cube(SpriteAnim a, int f) => Model([Part(Mesh.box(1, 1, 1.0 + f * 0.5), _grey)]);
+Model _cubeTall(SpriteAnim a, int f) => Model([Part(Mesh.box(1, 1, 1.2 + f * 0.5), _grey)]);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -63,6 +77,18 @@ void main() {
       _expectOutward(Mesh.cylinder(1, 2), const V3(0, 0, 1));
       _expectOutward(Mesh.cylinder(1, 2, rTop: 0), const V3(0, 0, 0.5));
       _expectOutward(Mesh.sphere(1, ry: 2, rz: 0.5), V3.zero);
+    });
+
+    test('bentuk putar: normal halus & muka menghadap keluar, tutup tanpa segitiga kosong', () {
+      const profile = [Offset(0, 0), Offset(1, 0), Offset(1.2, 0.5), Offset(0.8, 1.5), Offset(0, 2)];
+      final m = Mesh.lathe(profile, segments: 10);
+      _expectOutward(m, const V3(0, 0, 0.9));
+      // Ujung berjari-jari 0 hanya memberi satu segitiga per segmen.
+      expect(m.tris, hasLength(10 * (1 + 2 + 2 + 1)));
+      for (final t in m.tris) {
+        expect(t.na.length, closeTo(1, 1e-9));
+        expect(t.na.dot(t.faceNormal), greaterThan(0));
+      }
     });
 
     test('normal halus bola = arah dari pusat', () {
@@ -244,6 +270,44 @@ void main() {
       File('build/model3d/pin_tujuan.json').writeAsStringSync(spec.encode());
     });
 
+    test('slime: semua animasi × 16 arah, mata terlihat dari depan, tidak dari belakang', () async {
+      final sheet = bakeModel(slimeAsset);
+      final spec = sheet.spec;
+      await _writePng(await sheet.toImage(), 'slime');
+      File('build/model3d/slime.json').writeAsStringSync(spec.encode());
+      expect(spec.rows, 4 + 1 + 6 + 2);
+      int count(int dir, String anim, bool Function(int r, int g, int b) match) {
+        final cell = spec.cell(dir, anim, 0);
+        var n = 0;
+        for (var y = cell.top.toInt(); y < cell.bottom; y++) {
+          for (var x = cell.left.toInt(); x < cell.right; x++) {
+            final i = (y * spec.sheetWidth + x) * 4;
+            if (sheet.rgba[i + 3] == 255 && match(sheet.rgba[i], sheet.rgba[i + 1], sheet.rgba[i + 2])) n++;
+          }
+        }
+        return n;
+      }
+
+      bool white(int r, int g, int b) => r > 225 && g > 225 && b > 225;
+      // Heading 45° (arah 2) menghadap kamera; arah 10 membelakangi. Kilap badan
+      // sama di semua arah (badan bulat, cahaya tetap), jadi selisihnya = putih mata.
+      final back = count(10, 'idle', white);
+      final eyes = count(2, 'idle', white) - back;
+      expect(eyes, greaterThan(150));
+      // Kedip: putih mata hilang.
+      expect(count(2, 'kedip', white) - back, lessThan(eyes ~/ 6));
+      // Lelah: kelopak menutup sebagian putih mata.
+      expect(count(2, 'lelah', white) - back, lessThan(eyes * 0.8));
+    });
+
+    test('slime: lompat mendarat gepeng di tanah, melar saat terbang', () {
+      expect(slimeHop(0).lift, 0);
+      expect(slimeHop(0).stretch, lessThan(0.9));
+      expect(slimeHop(0.5).lift, greaterThan(0.4));
+      expect(slimeHop(0.2).stretch, greaterThan(1.05));
+      expect(slimeHop(1.0).stretch, closeTo(slimeHop(0).stretch, 1e-9));
+    });
+
     test('contoh semua bentuk dasar (halus & datar) dirender ke PNG', () async {
       final asset = ModelAsset(
         pixelsPerUnit: 32,
@@ -256,11 +320,68 @@ void main() {
             const Material(Color(0xFF4F95DC), smooth: true, gloss: 0.8),
             at: const V3(1, 1.4, 0.75),
           ),
-          Part(Mesh.cylinder(0.6, 1.2, rTop: 0, segments: 8), const Material(Color(0xFF3E9B5B)), at: const V3(-1, 2, 0)),
+          Part(
+            Mesh.cylinder(0.6, 1.2, rTop: 0, segments: 8),
+            const Material(Color(0xFF3E9B5B)),
+            at: const V3(-1, 2, 0),
+          ),
         ]),
       );
       final sheet = bakeModel(asset);
       await _writePng(await sheet.toImage(), 'bentuk_dasar');
+    });
+  });
+
+  group('panggang paralel & cache disk', () {
+    test('hasil paralel sama persis dengan panggang satu isolate', () async {
+      final one = bakeModel(_cubeAsset);
+      final many = await bakeModelParallel(_cubeAsset, workers: 3);
+      expect(many.spec.toJson(), one.spec.toJson());
+      expect(many.rgba, one.rgba);
+    });
+
+    test('sidik jari tetap untuk model sama, berubah bila model diubah', () {
+      expect(fingerprint(_cubeAsset), fingerprint(_cubeAsset));
+      expect(fingerprint(_cubeAsset), isNot(fingerprint(_cubeTallAsset)));
+      expect(fingerprint(slimeAsset), isNot(fingerprint(pinTujuanAsset)));
+    });
+
+    test('cache disk: tulis lalu baca sama, versi lama dihapus, file rusak = null', () {
+      final dir = Directory.systemTemp.createTempSync('bake_cache');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final cache = BakeCache(dir.path);
+      final sheet = bakeModel(_cubeAsset);
+      expect(cache.read('kotak', 'aaaa'), isNull);
+      cache.write('kotak', 'aaaa', sheet);
+      final back = cache.read('kotak', 'aaaa')!;
+      expect(back.spec.toJson(), sheet.spec.toJson());
+      expect(back.rgba, sheet.rgba);
+      cache.write('kotak', 'bbbb', sheet);
+      expect(cache.read('kotak', 'aaaa'), isNull);
+      expect(dir.listSync(), hasLength(2));
+      File('${dir.path}/kotak-bbbb.rgba.gz').writeAsBytesSync([1, 2, 3]);
+      expect(cache.read('kotak', 'bbbb'), isNull);
+    });
+
+    test('pustaka memakai cache disk pada pemuatan berikutnya', () async {
+      final dir = Directory.systemTemp.createTempSync('bake_lib');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      SpriteLibrary lib() => SpriteLibrary(
+        sources: const {'kotak': BakedSource(_cubeAsset)},
+        loadImage: (_) => throw UnimplementedError(),
+        loadText: (_) => throw UnimplementedError(),
+        cacheDir: () async => dir.path,
+      );
+      final first = await lib().load('kotak');
+      // Tunggu penulisan cache (berjalan di latar).
+      final fp = fingerprint(_cubeAsset);
+      final spec = File('${dir.path}/kotak-$fp.json');
+      for (var i = 0; i < 100 && !spec.existsSync(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(spec.existsSync(), isTrue);
+      final second = await lib().load('kotak');
+      expect(second.spec.toJson(), first.spec.toJson());
     });
   });
 

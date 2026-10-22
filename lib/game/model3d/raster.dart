@@ -101,9 +101,10 @@ class RasterImage {
 Rect projectedBounds(Model model, double yaw) {
   var l = double.infinity, t = double.infinity, r = -double.infinity, b = -double.infinity;
   for (final part in model.parts) {
+    final m = _PartMatrix(part, yaw);
     for (final tri in part.mesh.tris) {
       for (final v in [tri.a, tri.b, tri.c]) {
-        final s = IsoCamera.project(part.point(v).rotZ(yaw));
+        final s = IsoCamera.project(m.point(v));
         l = math.min(l, s.dx);
         t = math.min(t, s.dy);
         r = math.max(r, s.dx);
@@ -132,17 +133,16 @@ RasterImage renderModel(
   final ids = Uint16List(n);
   final color = Uint8List(n * 4);
 
-  final light = style.light.normalized();
-  final half = (light + IsoCamera.toCamera).normalized();
+  final nrm = Float32List(n * 3);
 
   for (var pi = 0; pi < model.parts.length; pi++) {
     final part = model.parts[pi];
     final mat = part.material;
     final id = pi + 1;
-    final cr = (mat.color.r * 255), cg = (mat.color.g * 255), cb = (mat.color.b * 255);
+    final m = _PartMatrix(part, yaw);
 
     for (final tri in part.mesh.tris) {
-      final a = part.point(tri.a).rotZ(yaw), b = part.point(tri.b).rotZ(yaw), c = part.point(tri.c).rotZ(yaw);
+      final a = m.point(tri.a), b = m.point(tri.b), c = m.point(tri.c);
       final fn = (b - a).cross(c - a);
       if (fn.dot(IsoCamera.toCamera) <= 0) continue; // muka membelakangi kamera
 
@@ -155,27 +155,24 @@ RasterImage renderModel(
       final da = IsoCamera.depth(a), db = IsoCamera.depth(b), dc = IsoCamera.depth(c);
 
       // Normal per titik (halus) atau satu normal muka (datar).
-      final na = mat.smooth ? part.normal(tri.na).rotZ(yaw) : fn.normalized();
-      final nb = mat.smooth ? part.normal(tri.nb).rotZ(yaw) : na;
-      final nc = mat.smooth ? part.normal(tri.nc).rotZ(yaw) : na;
-
-      var flatR = 0, flatG = 0, flatB = 0;
-      if (!mat.smooth) {
-        (flatR, flatG, flatB) = _shade(na.x, na.y, na.z, cr, cg, cb, mat.gloss, light, half, style);
-      }
+      final na = mat.smooth ? m.normal(tri.na) : fn.normalized();
+      final nb = mat.smooth ? m.normal(tri.nb) : na;
+      final nc = mat.smooth ? m.normal(tri.nc) : na;
 
       final x0 = math.max(0, math.min(ax, math.min(bx, cx)).floor());
       final x1 = math.min(w - 1, math.max(ax, math.max(bx, cx)).ceil());
       final y0 = math.max(0, math.min(ay, math.min(by, cy)).floor());
       final y1 = math.min(h - 1, math.max(ay, math.max(by, cy)).ceil());
       final inv = 1 / area;
+      // Koordinat barisentrik linear di x: hitung di awal baris lalu tambahkan per piksel.
+      final dwa = (by - cy) * inv, dwb = (cy - ay) * inv;
       for (var y = y0; y <= y1; y++) {
         final py = y + 0.5;
-        for (var x = x0; x <= x1; x++) {
-          final px = x + 0.5;
-          // Koordinat barisentrik; tanda area menyamakan arah putar layar.
-          final wa = ((bx - px) * (cy - py) - (by - py) * (cx - px)) * inv;
-          final wb = ((cx - px) * (ay - py) - (cy - py) * (ax - px)) * inv;
+        final px0 = x0 + 0.5;
+        // Tanda area menyamakan arah putar layar.
+        var wa = ((bx - px0) * (cy - py) - (by - py) * (cx - px0)) * inv;
+        var wb = ((cx - px0) * (ay - py) - (cy - py) * (ax - px0)) * inv;
+        for (var x = x0; x <= x1; x++, wa += dwa, wb += dwb) {
           final wc = 1 - wa - wb;
           if (wa < 0 || wb < 0 || wc < 0) continue;
           final i = y * w + x;
@@ -183,83 +180,212 @@ RasterImage renderModel(
           if (d <= depth[i]) continue;
           depth[i] = d;
           ids[i] = id;
-          int r, g, bl;
-          if (mat.smooth) {
-            final nx = wa * na.x + wb * nb.x + wc * nc.x;
-            final ny = wa * na.y + wb * nb.y + wc * nc.y;
-            final nz = wa * na.z + wb * nb.z + wc * nc.z;
-            final len = math.sqrt(nx * nx + ny * ny + nz * nz);
-            (r, g, bl) = _shade(nx / len, ny / len, nz / len, cr, cg, cb, mat.gloss, light, half, style);
-          } else {
-            r = flatR;
-            g = flatG;
-            bl = flatB;
-          }
-          final o = i * 4;
-          color[o] = r;
-          color[o + 1] = g;
-          color[o + 2] = bl;
-          color[o + 3] = 255;
+          final o = i * 3;
+          nrm[o] = wa * na.x + wb * nb.x + wc * nc.x;
+          nrm[o + 1] = wa * na.y + wb * nb.y + wc * nc.y;
+          nrm[o + 2] = wa * na.z + wb * nb.z + wc * nc.z;
         }
       }
     }
   }
 
+  // Shading sekali per piksel yang terlihat (bukan per piksel yang tertimpa).
+  final light = style.light.normalized();
+  final half = (light + IsoCamera.toCamera).normalized();
+  final shaders = [for (final part in model.parts) _Shader(part.material, light, half, style)];
+  for (var i = 0; i < n; i++) {
+    final id = ids[i];
+    if (id == 0) continue;
+    final nx = nrm[i * 3], ny = nrm[i * 3 + 1], nz = nrm[i * 3 + 2];
+    final len = math.sqrt(nx * nx + ny * ny + nz * nz);
+    final l = len == 0 ? 0.0 : 1 / len;
+    shaders[id - 1].shade(color, i * 4, nx * l, ny * l, nz * l);
+  }
+
   // Setengah piksel ekstra supaya garis tetap pekat walau tidak sejajar grid piksel hasil.
-  _outline(color, depth, ids, w, h, style.outlinePx * ss + ss ~/ 2, style);
-  return RasterImage(
-    frame.width,
-    frame.height,
-    _downsample(color, w, h, ss),
-    frame.anchor,
-  );
+  final inked = [false, for (final part in model.parts) part.material.inked];
+  _outline(color, depth, ids, inked, w, h, style.outlinePx * ss + ss ~/ 2, style);
+  return RasterImage(frame.width, frame.height, _downsample(color, w, h, ss), frame.anchor);
 }
 
-(int, int, int) _shade(
-  double nx,
-  double ny,
-  double nz,
-  double r,
-  double g,
-  double b,
-  double gloss,
-  V3 light,
-  V3 half,
-  RenderStyle style,
-) {
-  final lambert = math.max(0.0, nx * light.x + ny * light.y + nz * light.z);
-  final i = style.ambient + style.diffuse * lambert;
-  var spec = 0.0;
-  if (gloss > 0) {
-    final s = math.max(0.0, nx * half.x + ny * half.y + nz * half.z);
-    spec = gloss * math.pow(s, 24) * 255;
+/// Transformasi [Part] lalu putaran [yaw], sebagai matriks 3×3 + geseran,
+/// supaya sin/cos dihitung sekali per part, bukan per titik.
+class _PartMatrix {
+  factory _PartMatrix(Part part, double yaw) {
+    // Kolom matriks = gambar sumbu satuan setelah putar x, y, z, lalu yaw.
+    V3 rot(V3 v) => v.rotX(part.rotX).rotY(part.rotY).rotZ(part.rotZ).rotZ(yaw);
+    final ex = rot(const V3(1, 0, 0)), ey = rot(const V3(0, 1, 0)), ez = rot(const V3(0, 0, 1));
+    return _PartMatrix._(ex, ey, ez, part.scale, part.at.rotZ(yaw));
   }
-  int ch(double v) => (v * i + spec).round().clamp(0, 255);
-  return (ch(r), ch(g), ch(b));
+
+  _PartMatrix._(this.ex, this.ey, this.ez, this.s, this.t);
+
+  final V3 ex, ey, ez, s, t;
+
+  V3 point(V3 p) {
+    final x = p.x * s.x, y = p.y * s.y, z = p.z * s.z;
+    return V3(
+      ex.x * x + ey.x * y + ez.x * z + t.x,
+      ex.y * x + ey.y * y + ez.y * z + t.y,
+      ex.z * x + ey.z * y + ez.z * z + t.z,
+    );
+  }
+
+  /// Normal ikut skala tak seragam lewat invers-transpos (bagi dengan skala).
+  V3 normal(V3 n) {
+    final x = n.x / s.x, y = n.y / s.y, z = n.z / s.z;
+    return V3(
+      ex.x * x + ey.x * y + ez.x * z,
+      ex.y * x + ey.y * y + ez.y * z,
+      ex.z * x + ey.z * y + ez.z * z,
+    ).normalized();
+  }
 }
+
+/// Cahaya satu bahan: lambert + ambient, ditambah kilap specular.
+class _Shader {
+  _Shader(Material mat, this.light, this.half, RenderStyle style)
+    : r = mat.color.r * 255,
+      g = mat.color.g * 255,
+      b = mat.color.b * 255,
+      gloss = mat.gloss * 255,
+      shininess = mat.shininess,
+      ambient = style.ambient,
+      diffuse = style.diffuse,
+      // Di bawah kosinus ini kilapnya < ½ level warna, jadi pow tidak perlu dihitung.
+      specMin = mat.gloss > 0 ? math.pow(0.5 / (mat.gloss * 255), 1 / mat.shininess).toDouble() : 2;
+
+  final V3 light, half;
+  final double r, g, b, gloss, shininess, ambient, diffuse, specMin;
+
+  /// Tulis warna untuk normal satuan (nx, ny, nz) ke [out] di [o].
+  void shade(Uint8List out, int o, double nx, double ny, double nz) {
+    final lambert = math.max(0.0, nx * light.x + ny * light.y + nz * light.z);
+    final i = ambient + diffuse * lambert;
+    var spec = 0.0;
+    final s = nx * half.x + ny * half.y + nz * half.z;
+    if (s > specMin) spec = gloss * math.pow(s, shininess);
+    out[o] = _byte(r * i + spec);
+    out[o + 1] = _byte(g * i + spec);
+    out[o + 2] = _byte(b * i + spec);
+    out[o + 3] = 255;
+  }
+}
+
+int _byte(double v) => v <= 0 ? 0 : (v >= 255 ? 255 : v.round());
 
 /// Garis tinta: di luar siluet, dan di sisi yang lebih jauh dari batas antar-part
-/// atau lompatan kedalaman, supaya bentuk depan tetap utuh.
-void _outline(Uint8List color, Float32List depth, Uint16List ids, int w, int h, int t, RenderStyle style) {
-  final offsets = <(int, int)>[
-    for (var dy = -t; dy <= t; dy++)
-      for (var dx = -t; dx <= t; dx++)
-        if ((dx != 0 || dy != 0) && dx * dx + dy * dy <= t * t) (dx, dy),
-  ];
-  final ink = <int>[];
+/// atau lompatan kedalaman, supaya bentuk depan tetap utuh. Batas dengan part
+/// yang `inked`-nya false tidak bergaris. [inked] diindeks id part (0 = kosong).
+void _outline(
+  Uint8List color,
+  Float32List depth,
+  Uint16List ids,
+  List<bool> inked,
+  int w,
+  int h,
+  int t,
+  RenderStyle style,
+) {
+  final ox = <int>[], oy = <int>[];
+  for (var dy = -t; dy <= t; dy++) {
+    for (var dx = -t; dx <= t; dx++) {
+      if ((dx != 0 || dy != 0) && dx * dx + dy * dy <= t * t) {
+        ox.add(dx);
+        oy.add(dy);
+      }
+    }
+  }
+  final n = ox.length;
+  // Geseran indeks datar per tetangga: jalur cepat tanpa cek batas untuk piksel
+  // yang jaraknya ≥ t dari tepi; pita tepi memakai cek batas.
+  final delta = Int32List.fromList([for (var k = 0; k < n; k++) oy[k] * w + ox[k]]);
+  final crease = style.creaseDepth;
+
+  // Tahap 1: tandai piksel yang bertetangga langsung (kanan/bawah) dengan id lain
+  // atau lompatan kedalaman > crease / (2t). Tiap piksel yang perlu tinta pasti
+  // punya tanda dalam lingkaran radius t: jalur L dari piksel ke tetangga
+  // pemicunya (≤ 2t langkah) tetap di dalam lingkaran dan pasti melewati
+  // perubahan semacam itu. Jadi cek penuh di tahap 2 cukup untuk piksel dekat tanda.
+  final step = crease / (2 * t);
+  final mark = Uint8List(w * h);
+  void pair(int i, int q) {
+    final id = ids[i];
+    if (ids[q] != id || (id != 0 && (depth[q] - depth[i]).abs() > step)) {
+      mark[i] = 1;
+      mark[q] = 1;
+    }
+  }
+
   for (var y = 0; y < h; y++) {
     for (var x = 0; x < w; x++) {
       final i = y * w + x;
+      if (x + 1 < w) pair(i, i + 1);
+      if (y + 1 < h) pair(i, i + w);
+    }
+  }
+  // Jarak mendatar ke tanda terdekat di baris yang sama (dibatasi t + 1).
+  final near = Uint8List(w * h);
+  for (var y = 0; y < h; y++) {
+    final row = y * w;
+    var run = t + 1;
+    for (var x = 0; x < w; x++) {
+      run = mark[row + x] == 1 ? 0 : math.min(run + 1, t + 1);
+      near[row + x] = run;
+    }
+    run = t + 1;
+    for (var x = w - 1; x >= 0; x--) {
+      run = mark[row + x] == 1 ? 0 : math.min(run + 1, t + 1);
+      if (run < near[row + x]) near[row + x] = run;
+    }
+  }
+  final reach = [for (var k = 0; k <= t; k++) math.sqrt(t * t - k * k).floor()];
+
+  // Tahap 2: cek penuh tetangga dalam lingkaran, hanya dekat tanda.
+  final ink = <int>[];
+  for (var y = 0; y < h; y++) {
+    final edgeRow = y < t || y >= h - t;
+    for (var x = 0; x < w; x++) {
+      final i = y * w + x;
+      var close = false;
+      for (var dy = -t; dy <= t && !close; dy++) {
+        final yy = y + dy;
+        if (yy >= 0 && yy < h && near[yy * w + x] <= reach[dy.abs()]) close = true;
+      }
+      if (!close) continue;
       final id = ids[i];
+      final edge = edgeRow || x < t || x >= w - t;
+      if (id == 0) {
+        // Di luar siluet: bertinta bila ada piksel model di dekatnya.
+        for (var k = 0; k < n; k++) {
+          if (edge) {
+            final qx = x + ox[k], qy = y + oy[k];
+            if (qx < 0 || qy < 0 || qx >= w || qy >= h) continue;
+          }
+          if (ids[i + delta[k]] != 0) {
+            ink.add(i);
+            break;
+          }
+        }
+        continue;
+      }
       final d = depth[i];
-      for (final (dx, dy) in offsets) {
-        final qx = x + dx, qy = y + dy;
-        if (qx < 0 || qy < 0 || qx >= w || qy >= h) continue;
-        final q = qy * w + qx;
+      final mine = inked[id];
+      for (var k = 0; k < n; k++) {
+        if (edge) {
+          final qx = x + ox[k], qy = y + oy[k];
+          if (qx < 0 || qy < 0 || qx >= w || qy >= h) continue;
+        }
+        final q = i + delta[k];
         final qid = ids[q];
         if (qid == 0) continue;
         final nearer = depth[q] - d;
-        if (id == 0 || (qid != id && nearer > 0) || nearer > style.creaseDepth) {
+        if (qid != id) {
+          if (mine && inked[qid] && nearer > 0) {
+            ink.add(i);
+            break;
+          }
+        } else if (nearer > crease) {
           ink.add(i);
           break;
         }
@@ -280,7 +406,7 @@ void _outline(Uint8List color, Float32List depth, Uint16List ids, int w, int h, 
 Uint8List _downsample(Uint8List src, int w, int h, int ss) {
   final ow = w ~/ ss, oh = h ~/ ss;
   final out = Uint8List(ow * oh * 4);
-  final count = ss * ss;
+  final count = ss * ss, cDiv = 255 * count;
   for (var y = 0; y < oh; y++) {
     for (var x = 0; x < ow; x++) {
       var r = 0, g = 0, b = 0, a = 0;
@@ -294,11 +420,13 @@ Uint8List _downsample(Uint8List src, int w, int h, int ss) {
           a += al;
         }
       }
+      if (a == 0) continue;
       final o = (y * ow + x) * 4;
-      out[o] = (r / (255 * count)).round();
-      out[o + 1] = (g / (255 * count)).round();
-      out[o + 2] = (b / (255 * count)).round();
-      out[o + 3] = (a / count).round();
+      // Pembagian bulat (dibulatkan ke terdekat) tanpa double.
+      out[o] = (r + cDiv ~/ 2) ~/ cDiv;
+      out[o + 1] = (g + cDiv ~/ 2) ~/ cDiv;
+      out[o + 2] = (b + cDiv ~/ 2) ~/ cDiv;
+      out[o + 3] = (a + count ~/ 2) ~/ count;
     }
   }
   return out;

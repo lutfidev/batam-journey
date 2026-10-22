@@ -1,10 +1,14 @@
+import 'dart:async';
+import 'dart:io';
 import 'dart:isolate';
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 
 import '../model3d/bake.dart';
 import '../model3d/models/pin_tujuan.dart';
+import '../model3d/models/slime.dart';
+import 'bake_cache.dart';
 import 'sprite_sheet.dart';
 
 /// Dari mana sprite sebuah aset berasal. Kode game tidak peduli: keduanya
@@ -30,23 +34,37 @@ class PngSource extends SpriteSource {
 /// Id aset sprite.
 abstract final class SpriteIds {
   static const pinTujuan = 'pin_tujuan';
+  static const slime = 'slime';
 }
 
 /// Sumber sprite per aset. Saat sheet Blender siap, cukup ganti barisnya ke
 /// `PngSource('<nama>')`; kamera, fisika, dan animasi game tidak berubah.
 final spriteSources = <String, SpriteSource>{
   SpriteIds.pinTujuan: const BakedSource(pinTujuanAsset),
+  SpriteIds.slime: const BakedSource(slimeAsset),
 };
 
 /// Memuat dan menyimpan (cache) sprite per id; tiap aset dipanggang/dimuat sekali.
 class SpriteLibrary {
-  SpriteLibrary({required this.loadImage, required this.loadText, Map<String, SpriteSource>? sources})
-    : sources = sources ?? spriteSources;
+  SpriteLibrary({
+    required this.loadImage,
+    required this.loadText,
+    Map<String, SpriteSource>? sources,
+    this.cacheDir,
+    int? bakeWorkers,
+  }) : sources = sources ?? spriteSources,
+       bakeWorkers = bakeWorkers ?? (kIsWeb ? 1 : (Platform.numberOfProcessors - 1).clamp(2, 6));
 
   /// Memuat gambar/teks berdasarkan nama file di `assets/images/`.
   final Future<ui.Image> Function(String file) loadImage;
   final Future<String> Function(String file) loadText;
   final Map<String, SpriteSource> sources;
+
+  /// Folder cache disk untuk atlas hasil panggang; null = selalu panggang ulang.
+  final Future<String?> Function()? cacheDir;
+
+  /// Jumlah isolate yang memanggang bersamaan.
+  final int bakeWorkers;
 
   final _cache = <String, Future<DirectionalSprite>>{};
   final _ready = <String, DirectionalSprite>{};
@@ -60,8 +78,22 @@ class SpriteLibrary {
     final source = sources[id] ?? (throw ArgumentError('sprite "$id" tidak terdaftar'));
     switch (source) {
       case BakedSource(:final asset):
-        // Panggang di isolate lain supaya UI tidak tersendat (web tidak punya isolate).
-        final sheet = kIsWeb ? bakeModel(asset) : await Isolate.run(() => bakeModel(asset));
+        // Web tidak punya isolate maupun disk: panggang langsung.
+        if (kIsWeb) return bakeModel(asset).toSprite();
+        final sw = Stopwatch()..start();
+        // Di isolate lain supaya UI tidak tersendat; cache disk dipakai bila
+        // sidik jari modelnya sama.
+        final dir = await cacheDir?.call();
+        final cache = dir == null ? null : BakeCache(dir);
+        final fp = await Isolate.run(() => fingerprint(asset));
+        var sheet = cache == null ? null : await Isolate.run(() => cache.read(id, fp));
+        final cached = sheet != null;
+        sheet ??= await bakeModelParallel(asset, workers: bakeWorkers);
+        if (!cached && cache != null) {
+          final baked = sheet;
+          unawaited(Isolate.run(() => cache.write(id, fp, baked)).catchError((Object _) {}));
+        }
+        debugPrint('sprite $id: ${cached ? 'dari cache' : 'dipanggang'} ${sw.elapsedMilliseconds} ms');
         return sheet.toSprite();
       case PngSource(:final name):
         final spec = SpriteSheetSpec.parse(await loadText('$name.json'));

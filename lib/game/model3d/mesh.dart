@@ -151,6 +151,43 @@ class Mesh {
     return Mesh(tris);
   }
 
+  /// Bentuk putar: profil [profile] (dx = jari-jari, dy = tinggi z, urut dari
+  /// bawah ke atas) diputar mengelilingi sumbu z. Normal halus per titik profil,
+  /// cocok untuk bentuk bulat seperti badan slime. Jari-jari 0 di ujung = tutup.
+  factory Mesh.lathe(List<Offset> profile, {int segments = 16}) {
+    final n = profile.length;
+    // Normal profil di bidang (r, z): tegak lurus garis singgung, menghadap keluar.
+    final pn = <Offset>[
+      for (var k = 0; k < n; k++)
+        () {
+          final t = profile[math.min(k + 1, n - 1)] - profile[math.max(k - 1, 0)];
+          final l = t.distance;
+          return l == 0 ? const Offset(1, 0) : Offset(t.dy / l, -t.dx / l);
+        }(),
+    ];
+    V3 at(int k, int i) {
+      final a = 2 * math.pi * i / segments;
+      return V3(math.cos(a) * profile[k].dx, math.sin(a) * profile[k].dx, profile[k].dy);
+    }
+
+    V3 nAt(int k, int i) {
+      final a = 2 * math.pi * i / segments;
+      return V3(math.cos(a) * pn[k].dx, math.sin(a) * pn[k].dx, pn[k].dy);
+    }
+
+    final tris = <Tri>[];
+    for (var k = 0; k + 1 < n; k++) {
+      for (var i = 0; i < segments; i++) {
+        final j = i + 1;
+        if (profile[k].dx > 0) tris.add(Tri(at(k, i), at(k, j), at(k + 1, j), nAt(k, i), nAt(k, j), nAt(k + 1, j)));
+        if (profile[k + 1].dx > 0) {
+          tris.add(Tri(at(k, i), at(k + 1, j), at(k + 1, i), nAt(k, i), nAt(k + 1, j), nAt(k + 1, i)));
+        }
+      }
+    }
+    return Mesh(tris);
+  }
+
   /// Ekstrusi poligon 2D [outline] (bidang xy, boleh cekung, tanpa silang)
   /// setebal [depth] ke arah +z, alas di z = 0. Putar lewat [Part] untuk
   /// membuatnya tegak. Sisi tetap datar per ruas (gaya low-poly).
@@ -217,13 +254,16 @@ List<(int, int, int)> triangulate(List<Offset> p) {
 }
 
 /// Bahan permukaan. [smooth] = normal diinterpolasi (bulat halus, mis. slime);
-/// selain itu tiap muka datar (low-poly). [gloss] 0..1 menambah kilap putih.
+/// selain itu tiap muka datar (low-poly). [gloss] 0..1 menambah kilap putih;
+/// [shininess] makin besar = titik kilap makin kecil & tajam. [inked] = false: part ini tidak diberi garis tinta di batasnya dengan part
+/// lain (mis. pipi merona yang menempel di badan); siluet tetap bergaris.
 class Material {
-  const Material(this.color, {this.smooth = false, this.gloss = 0});
+  const Material(this.color, {this.smooth = false, this.gloss = 0, this.shininess = 24, this.inked = true});
 
   final Color color;
   final bool smooth;
-  final double gloss;
+  final double gloss, shininess;
+  final bool inked;
 }
 
 /// Satu bentuk dalam model: mesh + bahan + transformasi

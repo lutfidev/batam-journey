@@ -18,7 +18,7 @@ Dikerjakan dulu, berurutan.
       - Joystick dipetakan dari arah layar ke arah tanah (jalan kaki & setir).
       - Urutan kedalaman memakai `x + y` tanah.
       - Peta & minimap tetap utara-atas. Sprite lama dipakai sementara.
-- [ ] 2. `feat/model-lowpoly`: renderer model low-poly di Dart.
+- [x] 2. `feat/model-lowpoly`: renderer model low-poly di Dart.
       - Bentuk dasar: kotak, silinder, bola, ekstrusi.
       - Cahaya searah dan outline tinta.
       - Dipanggang jadi sprite 16 arah lalu di-cache. Ada test render ke PNG.
@@ -96,3 +96,4 @@ selesai saat November, aset yang tersisa langsung dibuat di Blender.
 ## Selesai
 - [x] Setir motor ikut arah joystick, pemain jadi slime jelly, README dengan screenshot (PR #1).
 - [x] Fondasi isometrik: proyeksi tanah, kamera, joystick, kedalaman (PR #4).
+- [x] Renderer model low-poly Dart, panggang 16 arah, format sprite bersama (PR #5).
