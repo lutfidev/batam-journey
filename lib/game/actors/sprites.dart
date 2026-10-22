@@ -4,9 +4,9 @@ import 'dart:ui';
 
 import '../../ui/palette.dart';
 
-/// Sprite prosedural (Canvas) untuk motor dan slime 2D yang menungganginya,
-/// sementara sampai motor 3D (langkah 4). Slime jalan kaki sudah 3D
-/// (`model3d/models/slime.dart`); [drawSlime] masih dipakai pengendara & layar rumah.
+/// Sprite prosedural (Canvas) 2D lama untuk motor dan slime. Di dunia game keduanya
+/// sudah 3D (`model3d/models/slime.dart`, `model3d/models/motor.dart`); [drawMotor]
+/// dan [drawSlime] tinggal dipakai denah layar rumah. [drawShadow] dipakai semua aktor.
 ///
 /// Semua koordinat di sini memakai piksel desain (layar 844×390);
 /// pemanggil men-scale ke satuan dunia.

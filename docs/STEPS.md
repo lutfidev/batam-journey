@@ -28,7 +28,7 @@ Dikerjakan dulu, berurutan.
         sprite sheet di `assets/images/` (hasil Blender, bagian C).
       - Dengan begitu, di November aset bisa diganti ke Blender satu per satu tanpa mengubah
         kamera, fisika, aturan animasi, atau tata letak kota dari langkah 1–5.
-- [ ] 3. `feat/slime-3d`: slime 3D baru (volume, kilap, mata ekspresif) dengan 16 arah.
+- [x] 3. `feat/slime-3d`: slime 3D baru (volume, kilap, mata ekspresif) dengan 16 arah.
       - Animasi kenyal: squash-stretch, toleh halus, debu langkah.
       - Jalan kaki pakai percepatan/perlambatan (tidak meluncur).
 - [ ] 4. `feat/motor-3d`: motor 3D baru + rasa berkendara.
@@ -88,8 +88,9 @@ selesai saat November, aset yang tersisa langsung dibuat di Blender.
 - Format sprite bersama (atlas 16 arah × frame, JSON pendamping PNG) dijelaskan di
   `lib/game/sprites/sprite_sheet.dart`; sumber per aset diatur di `spriteSources`
   (`lib/game/sprites/sprite_library.dart`). Script Blender di bagian C harus menulis format ini.
-- Rasa setir joystick belum pernah dicoba langsung di HP, karena adb hanya bisa satu sentuhan.
-  Dicoba bersama langkah 4.
+- Langkah 4: di HP sudah dicoba gas saja (assist lajur mengikuti jalan), rem, dan belok dengan
+  joystick saat motor meluncur. Setir sambil gas belum bisa dicoba lewat adb (hanya satu sentuhan);
+  pemilik repo perlu mencobanya langsung.
 - Tiap langkah dicek di HP uji (build release lewat adb). Screenshot sebelum/sesudah dilampirkan di
   badan PR.
 
@@ -97,3 +98,4 @@ selesai saat November, aset yang tersisa langsung dibuat di Blender.
 - [x] Setir motor ikut arah joystick, pemain jadi slime jelly, README dengan screenshot (PR #1).
 - [x] Fondasi isometrik: proyeksi tanah, kamera, joystick, kedalaman (PR #4).
 - [x] Renderer model low-poly Dart, panggang 16 arah, format sprite bersama (PR #5).
+- [x] Slime 3D 16 arah, lompat kenyal, jalan kaki berpercepatan (PR #6).

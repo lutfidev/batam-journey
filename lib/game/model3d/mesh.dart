@@ -296,4 +296,43 @@ class Model {
   const Model(this.parts);
 
   final List<Part> parts;
+
+  /// Model yang diperbesar seragam [scale] kali lalu digeser ke [at]
+  /// (mis. slime yang duduk di jok motor).
+  Model placed(V3 at, {double scale = 1}) => Model([
+    for (final p in parts)
+      Part(
+        p.mesh,
+        p.material,
+        at: p.at * scale + at,
+        scale: p.scale * scale,
+        rotX: p.rotX,
+        rotY: p.rotY,
+        rotZ: p.rotZ,
+      ),
+  ]);
+
+  /// Seluruh model diputar [angle] radian mengelilingi sumbu x (arah maju) lewat
+  /// titik pijak; positif = atas condong ke kiri (−y). Karena putaran ini terjadi
+  /// setelah transformasi tiap part, titik-titiknya dihitung langsung ke mesh baru.
+  Model rolled(double angle) {
+    if (angle == 0) return this;
+    return Model([
+      for (final p in parts)
+        Part(
+          Mesh([
+            for (final t in p.mesh.tris)
+              Tri(
+                p.point(t.a).rotX(angle),
+                p.point(t.b).rotX(angle),
+                p.point(t.c).rotX(angle),
+                p.normal(t.na).rotX(angle),
+                p.normal(t.nb).rotX(angle),
+                p.normal(t.nc).rotX(angle),
+              ),
+          ]),
+          p.material,
+        ),
+    ]);
+  }
 }

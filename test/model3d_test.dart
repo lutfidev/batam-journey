@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:batam_the_journey_begins/game/iso.dart';
 import 'package:batam_the_journey_begins/game/model3d/bake.dart';
 import 'package:batam_the_journey_begins/game/model3d/mesh.dart';
+import 'package:batam_the_journey_begins/game/model3d/models/motor.dart';
 import 'package:batam_the_journey_begins/game/model3d/models/pin_tujuan.dart';
 import 'package:batam_the_journey_begins/game/model3d/models/slime.dart';
 import 'package:batam_the_journey_begins/game/model3d/raster.dart';
@@ -118,6 +119,22 @@ void main() {
       final n = part.normal(const V3(1, 1, 0).normalized());
       expect(n.length, closeTo(1, 1e-9));
       expect(n.x.abs(), greaterThan(n.y.abs()));
+    });
+
+    test('Model.placed menggeser & memperbesar; rolled memiringkan lewat titik pijak', () {
+      final m = Model([Part(Mesh.box(1, 1, 2), _grey, at: const V3(1, 0, 0))]);
+      final p = m.placed(const V3(0, 0, 3), scale: 2).parts.single;
+      expect(p.point(const V3(0, 0, 2)).z, closeTo(2 * 2 + 3, 1e-9));
+      expect(p.point(V3.zero).x, closeTo(2, 1e-9));
+
+      // Positif = atas condong ke −y (kiri); titik di tanah tetap di tanah.
+      final r = m.rolled(0.3).parts.single;
+      final top = r.mesh.tris.map((t) => t.a).reduce((a, b) => a.z > b.z ? a : b);
+      expect(top.y, lessThan(-0.4));
+      for (final t in r.mesh.tris) {
+        expect(t.a.z, greaterThanOrEqualTo(-0.5 * math.sin(0.3) - 1e-9));
+      }
+      expect(identical(m.rolled(0), m), isTrue);
     });
   });
 
@@ -298,6 +315,50 @@ void main() {
       expect(count(2, 'kedip', white) - back, lessThan(eyes ~/ 6));
       // Lelah: kelopak menutup sebagian putih mata.
       expect(count(2, 'lelah', white) - back, lessThan(eyes * 0.8));
+    });
+
+    test('motor: parkir + kendara 7 kemiringan × 16 arah; miring kanan = helm ke kanan', () async {
+      final sw = Stopwatch()..start();
+      final sheet = await bakeModelParallel(motorAsset);
+      // ignore: avoid_print
+      print('motor: ${sheet.spec.frameWidth}×${sheet.spec.frameHeight} px/sel, ${sw.elapsedMilliseconds} ms');
+      final spec = sheet.spec;
+      await _writePng(await sheet.toImage(), 'motor');
+      File('build/model3d/motor.json').writeAsStringSync(spec.encode());
+      expect(spec.rows, 1 + motorLeanFrames);
+
+      /// Pusat x piksel helm hijau di sel (relatif titik pijak), atau null.
+      double? helmetX(int dir, String anim, int frame) {
+        final cell = spec.cell(dir, anim, frame);
+        var sx = 0.0, n = 0;
+        for (var y = cell.top.toInt(); y < cell.bottom; y++) {
+          for (var x = cell.left.toInt(); x < cell.right; x++) {
+            final i = (y * spec.sheetWidth + x) * 4;
+            final r = sheet.rgba[i], g = sheet.rgba[i + 1], b = sheet.rgba[i + 2];
+            if (sheet.rgba[i + 3] == 255 && g > r + 40 && g > b + 15) {
+              sx += x - cell.left;
+              n++;
+            }
+          }
+        }
+        return n == 0 ? null : sx / n - spec.anchor.dx;
+      }
+
+      // Arah 10 (heading 225°) membelakangi kamera: kanan motor = kanan layar.
+      final upright = helmetX(10, 'kendara', motorLeanFrame(0))!;
+      expect(helmetX(10, 'kendara', motorLeanFrames - 1)!, greaterThan(upright + 8));
+      expect(helmetX(10, 'kendara', 0)!, lessThan(upright - 8));
+      // Parkir tanpa pengendara: tidak ada helm.
+      expect(helmetX(10, 'parkir', 0), isNull);
+    });
+
+    test('motor: frame kemiringan', () {
+      expect(motorLeanFrame(0), motorLeanFrames ~/ 2);
+      expect(motorLeanFrame(motorMaxLean), motorLeanFrames - 1);
+      expect(motorLeanFrame(-2 * motorMaxLean), 0);
+      for (var f = 0; f < motorLeanFrames; f++) {
+        expect(motorLeanFrame(motorLeanOf(f)), f);
+      }
     });
 
     test('slime: lompat mendarat gepeng di tanah, melar saat terbang', () {

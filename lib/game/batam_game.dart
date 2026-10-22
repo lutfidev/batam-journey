@@ -15,6 +15,7 @@ import 'actors/fuel_station.dart';
 import 'actors/house_station.dart';
 import 'actors/motorbike.dart';
 import 'actors/player.dart';
+import 'actors/skid_marks.dart';
 import 'actors/workshop_station.dart';
 import 'iso.dart';
 import 'map/road_graph.dart';
@@ -93,6 +94,7 @@ class BatamGame extends FlameGame with KeyboardEvents {
   final houses = <HouseStation>[];
   final businesses = <BusinessStation>[];
   final controls = Controls();
+  final skids = SkidMarks();
   final wallet = Wallet();
   final tank = FuelTank();
   final stats = PlayerStats();
@@ -181,7 +183,7 @@ class BatamGame extends FlameGame with KeyboardEvents {
       // Penyimpanan tidak tersedia: mulai dari awal.
     }
     _warnedLow = tank.isLow;
-    world.add(RoadLayer(graph));
+    world.addAll([RoadLayer(graph), skids]);
     _placeStations();
     _placeWorkshops();
     _placeHouses();
@@ -205,8 +207,12 @@ class BatamGame extends FlameGame with KeyboardEvents {
     final normal = Offset(-dir.dy, dir.dx);
     final kerb = road + normal * (seg.edge.width / 2 + 2.5);
 
-    motor = Motorbike(position: Vector2(kerb.dx, kerb.dy), heading: math.atan2(dir.dy, dir.dx));
-    final (slime, pin) = await (sprites.load(SpriteIds.slime), sprites.load(SpriteIds.pinTujuan)).wait;
+    final (slime, bike, pin) = await (
+      sprites.load(SpriteIds.slime),
+      sprites.load(SpriteIds.motor),
+      sprites.load(SpriteIds.pinTujuan),
+    ).wait;
+    motor = Motorbike(position: Vector2(kerb.dx, kerb.dy), sprite: bike, heading: math.atan2(dir.dy, dir.dx));
     player = Player(position: Vector2(kerb.dx, kerb.dy) + Vector2(dir.dx, dir.dy) * -3.5, sprite: slime);
     world.addAll([motor, player, DestinationPin(pin)]);
 
@@ -413,8 +419,12 @@ class BatamGame extends FlameGame with KeyboardEvents {
 
   double get _baseZoom => size.y / 390;
 
-  /// Kamera menempel ke titik layar iso pemain (posisi pemain = koordinat tanah).
-  void _followPlayer() => camera.viewfinder.position = isoOfV(player.position);
+  /// Pandangan kamera ke depan motor (unit tanah), dihaluskan.
+  final _look = Vector2.zero();
+
+  /// Kamera menempel ke titik layar iso pemain (posisi pemain = koordinat tanah),
+  /// digeser ke depan sesuai laju saat berkendara.
+  void _followPlayer() => camera.viewfinder.position = isoOfV(player.position + _look);
 
   void clampToWorld(Vector2 p) {
     p.x = p.x.clamp(0, graph.size.width);
@@ -539,6 +549,8 @@ class BatamGame extends FlameGame with KeyboardEvents {
     final targetZoom = _baseZoom * (player.isRiding ? walkZoom - (walkZoom - rideZoomMin) * speedFrac : walkZoom);
     final vf = camera.viewfinder;
     vf.zoom += (targetZoom - vf.zoom) * math.min(1, dt * 2.5);
+    final ahead = player.isRiding ? lookAheadOf(motor.heading, motor.speed) : Vector2.zero();
+    _look.add((ahead - _look)..scale(math.min(1, dt * 1.8)));
     _followPlayer();
 
     speedKmh.value = motor.speedKmh.round();

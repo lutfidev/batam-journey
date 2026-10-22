@@ -1,7 +1,6 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
-import 'package:batam_the_journey_begins/game/actors/motorbike.dart';
 import 'package:batam_the_journey_begins/game/iso.dart';
 import 'package:flame/components.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -73,23 +72,25 @@ void main() {
     });
   });
 
-  group('pose motor mengikuti arah di layar', () {
+  group('arah motor di layar', () {
+    Offset screenOf(double heading) => isoOf(Offset(math.cos(heading), math.sin(heading)));
+
     test('motor ke timur tanah tampak menyerong ke kanan-bawah layar', () {
-      expect(octantOf(screenHeadingOf(0)), 1);
-      expect(screenHeadingOf(0), closeTo(math.atan2(0.5, 1), 1e-9));
+      final s = screenOf(0);
+      expect(math.atan2(s.dy, s.dx), closeTo(math.atan2(0.5, 1), 1e-9));
     });
 
     test('motor ke tenggara tanah tampak lurus ke bawah layar', () {
-      expect(octantOf(screenHeadingOf(math.pi / 4)), 2);
+      final s = screenOf(math.pi / 4);
+      expect(s.dx, closeTo(0, 1e-9));
+      expect(s.dy, greaterThan(0));
     });
 
-    test('motor ke barat laut tanah tampak dari belakang (atas layar)', () {
-      expect(octantOf(screenHeadingOf(-3 * math.pi / 4)), 6);
-    });
-
-    test('setir ke kanan layar membuat pose motor menghadap kanan', () {
+    test('setir ke kanan layar membuat motor melaju ke kanan layar', () {
       final g = screenDirToGround(Vector2(1, 0));
-      expect(octantOf(screenHeadingOf(math.atan2(g.y, g.x))), 0);
+      final s = screenOf(math.atan2(g.y, g.x));
+      expect(s.dx, greaterThan(0));
+      expect(s.dy, closeTo(0, 1e-6));
     });
   });
 }
