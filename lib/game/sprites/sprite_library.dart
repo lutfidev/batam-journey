@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 
 import '../model3d/bake.dart';
+import '../model3d/models/motor.dart';
 import '../model3d/models/pin_tujuan.dart';
 import '../model3d/models/slime.dart';
 import 'bake_cache.dart';
@@ -35,6 +36,7 @@ class PngSource extends SpriteSource {
 abstract final class SpriteIds {
   static const pinTujuan = 'pin_tujuan';
   static const slime = 'slime';
+  static const motor = 'motor';
 }
 
 /// Sumber sprite per aset. Saat sheet Blender siap, cukup ganti barisnya ke
@@ -42,6 +44,7 @@ abstract final class SpriteIds {
 final spriteSources = <String, SpriteSource>{
   SpriteIds.pinTujuan: const BakedSource(pinTujuanAsset),
   SpriteIds.slime: const BakedSource(slimeAsset),
+  SpriteIds.motor: const BakedSource(motorAsset),
 };
 
 /// Memuat dan menyimpan (cache) sprite per id; tiap aset dipanggang/dimuat sekali.

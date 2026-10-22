@@ -68,8 +68,11 @@ final List<Offset> _profile = [
     }(),
 ];
 
+/// Tinggi badan slime tegak (satuan dunia), tanpa dilarkan.
+const slimeHeight = _height;
+
 /// Jari-jari badan (sebelum dipenyet) pada tinggi [z].
-double _radiusAt(double z) {
+double slimeRadiusAt(double z) {
   for (var k = 0; k + 1 < _profile.length; k++) {
     final a = _profile[k], b = _profile[k + 1];
     if (z <= b.dy && b.dy > a.dy) return a.dx + (b.dx - a.dx) * (z - a.dy) / (b.dy - a.dy);
@@ -80,27 +83,31 @@ double _radiusAt(double z) {
 final _body = Mesh.lathe(_profile, segments: 20);
 final _ball = Mesh.sphere(1, segments: 12, rings: 8);
 
-Model _build(SpriteAnim anim, int frame) {
-  final stretch = switch (anim.name) {
+Model _build(SpriteAnim anim, int frame) => slimeModel(
+  stretch: switch (anim.name) {
     'jalan' => slimeHop(frame / anim.frames).stretch,
     'lelah' => 1 - 0.03 * math.sin(2 * math.pi * frame / anim.frames),
     'idle' => 1 + 0.035 * math.sin(2 * math.pi * frame / anim.frames),
     _ => 1.0,
-  };
+  },
+  eyes: switch (anim.name) {
+    'kedip' => SlimeEyes.closed,
+    'lelah' => SlimeEyes.sleepy,
+    _ => SlimeEyes.open,
+  },
+);
+
+/// Badan slime menghadap +x dengan alas di (0,0,0), dilarkan tegak [stretch]
+/// kali. Dipakai juga untuk pengendara motor (`motor.dart`).
+Model slimeModel({double stretch = 1, SlimeEyes eyes = SlimeEyes.open}) {
   // Volume tetap: melar ke atas = menyempit ke samping.
   final s = V3(1 / math.sqrt(stretch), 1 / math.sqrt(stretch), stretch);
-  final eyes = switch (anim.name) {
-    'kedip' => _Eyes.closed,
-    'lelah' => _Eyes.sleepy,
-    _ => _Eyes.open,
-  };
-
   final parts = <Part>[Part(_body, const Material(_bodyColor, smooth: true, gloss: 0.8, shininess: 60), scale: s)];
 
   /// Bola berjari-jari [r] yang menempel di permukaan badan pada tinggi [z],
   /// sudut [a] dari depan, dan menonjol [out] dari permukaan.
   void onSurface(double z, double a, V3 r, Material m, {double out = 0}) {
-    final rad = _radiusAt(z) * s.x + out;
+    final rad = slimeRadiusAt(z) * s.x + out;
     parts.add(Part(_ball, m, at: V3(math.cos(a) * rad, math.sin(a) * rad, z * s.z), scale: r, rotZ: a));
   }
 
@@ -108,9 +115,9 @@ Model _build(SpriteAnim anim, int frame) {
   for (final side in const [-1.0, 1.0]) {
     final a = side * eyeA;
     switch (eyes) {
-      case _Eyes.closed:
+      case SlimeEyes.closed:
         onSurface(eyeZ - 0.06, a, const V3(0.06, 0.2, 0.045), const Material(BColors.ink), out: 0.01);
-      case _Eyes.open || _Eyes.sleepy:
+      case SlimeEyes.open || SlimeEyes.sleepy:
         onSurface(eyeZ, a, const V3(0.12, 0.25, 0.32), const Material(Color(0xFFFFFFFF), smooth: true), out: -0.04);
         // Pupil sedikit ke tengah & bawah: menatap ke depan, terlihat ramah. Kilap
         // putih di pupil muncul dari specular.
@@ -121,7 +128,7 @@ Model _build(SpriteAnim anim, int frame) {
           const Material(BColors.ink, smooth: true, gloss: 1, shininess: 40),
           out: 0.02,
         );
-        if (eyes == _Eyes.sleepy) {
+        if (eyes == SlimeEyes.sleepy) {
           // Kelopak: bola sewarna badan menutup setengah atas mata.
           onSurface(eyeZ + 0.12, a, const V3(0.15, 0.28, 0.2), const Material(_lidColor, smooth: true), out: -0.005);
         }
@@ -153,4 +160,4 @@ Model _build(SpriteAnim anim, int frame) {
   return Model(parts);
 }
 
-enum _Eyes { open, closed, sleepy }
+enum SlimeEyes { open, closed, sleepy }
