@@ -1,17 +1,18 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui';
 
 import '../../ui/palette.dart';
 
-/// Sprite prosedural (Canvas) yang meniru gambar desain OnFoot/Main.
+/// Sprite prosedural (Canvas) untuk pemain (slime jelly) dan motornya.
 /// Sementara sampai sprite sheet 8 arah dari Blender siap.
 ///
 /// Semua koordinat di sini memakai piksel desain (layar 844×390);
 /// pemanggil men-scale ke satuan dunia.
 
-enum Facing { down, up, side }
+/// Arah tampak sprite. Arah kiri digambar dengan mencerminkan arah kanan.
+enum Facing { down, downSide, side, upSide, up }
 
-final _skin = Paint();
 final _ink = Paint()..color = BColors.ink;
 final _inkStroke = Paint()
   ..style = PaintingStyle.stroke
@@ -29,128 +30,139 @@ Paint _stroke(Color c, double w) => Paint()
   ..strokeCap = StrokeCap.round
   ..strokeJoin = StrokeJoin.round;
 
-void _skinAt(Rect r) {
-  _skin.shader = Gradient.linear(r.topLeft, r.bottomRight, const [Color(0xFFD9A274), Color(0xFFB07A50)]);
-}
-
 /// Bayangan lonjong di bawah aktor (pusat di [c]).
 void drawShadow(Canvas canvas, Offset c, double rx, double ry) {
   final r = Rect.fromCenter(center: c, width: rx * 2, height: ry * 2);
   canvas.drawOval(r, Paint()..shader = Gradient.radial(c, rx, const [Color(0x66000000), Color(0x00000000)]));
 }
 
-/// Pemain berjalan kaki. Titik (0,0) = kaki; tinggi ±145 px desain.
-/// [phase] = fase langkah (radian), [lookX] = -1..1 arah pandang mendatar.
-void drawWalker(Canvas canvas, Facing facing, double phase, double lookX, bool moving) {
+const _slimeLight = Color(0xFF9FD3FA);
+const _slimeMid = Color(0xFF4F95DC);
+const _slimeDark = BColors.biruPemain;
+const _slimeW = 100.0, _slimeH = 86.0;
+
+/// Ukuran slime saat duduk di jok motor.
+const _riderScale = 0.5;
+
+/// Pemain: slime jelly bermata dua. Titik (0,0) = tengah bawah (tanah);
+/// ukuran ±100×86 px desain.
+/// [lookX]/[lookY] = arah pandang (-1..1, y ke bawah layar); menghadap atas
+/// (`lookY < -0,6`) tampak belakang tanpa mata. [phase] menggerakkan lompatan
+/// saat [moving], atau napas pelan saat diam. [shadow] dimatikan saat duduk di motor.
+void drawSlime(
+  Canvas canvas, {
+  double lookX = 0,
+  double lookY = 1,
+  double phase = 0,
+  bool moving = false,
+  bool helmet = false,
+  bool shadow = true,
+}) {
+  final t = math.sin(phase).abs();
+  final hop = moving ? 12 * t : 0.0;
+  // Melar saat melayang, gepeng saat mendarat; diam = bernapas.
+  final sy = moving ? 0.88 + 0.24 * t : 1 + 0.035 * math.sin(phase);
+  final sx = 1 / math.sqrt(sy);
+  if (shadow) drawShadow(canvas, Offset.zero, 46 - hop, 9 - hop * 0.3);
+
   canvas.save();
-  canvas.translate(-420, -276);
-  drawShadow(canvas, const Offset(420, 276), 30, 7);
+  canvas.translate(0, -hop);
+  canvas.scale(sx, sy);
 
-  final swing = moving ? 6 * math.sin(phase) : 0.0;
-  final bob = moving ? 2 * math.sin(phase * 2).abs() : 0.0;
-  canvas.translate(0, -bob);
-
-  final jeans = _linear(const Offset(400, 0), const Offset(440, 0), const [Color(0xFF2A3550), Color(0xFF3D4C70)]);
-  jeans
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 12
-    ..strokeCap = StrokeCap.round;
-  canvas.drawLine(const Offset(410, 228), Offset(404 + swing, 272 + bob), jeans);
-  canvas.drawLine(const Offset(430, 228), Offset(438 - swing, 270 + bob), jeans);
-  final shoe = Paint()..color = const Color(0xFFF2F2F2);
-  final shoeLine = _stroke(BColors.ink, 1.5);
-  for (final c in [Offset(402 + swing, 274 + bob), Offset(441 - swing, 272 + bob)]) {
-    final r = Rect.fromCenter(center: c, width: 18, height: 10);
-    canvas.drawOval(r, shoe);
-    canvas.drawOval(r, shoeLine);
-  }
-
-  // Lengan di belakang badan saat tampak belakang.
-  final arm = _stroke(BColors.hijauAksi, 11);
-  final armL = Path()
-    ..moveTo(398, 190)
-    ..lineTo(386, 222)
-    ..lineTo(392 - swing * 0.6, 240);
-  final armR = Path()
-    ..moveTo(442, 190)
-    ..lineTo(454, 214)
-    ..lineTo(450 + swing * 0.6, 236);
-
-  final torso = Path()
-    ..moveTo(398, 186)
-    ..quadraticBezierTo(420, 174, 442, 186)
-    ..lineTo(446, 234)
-    ..lineTo(394, 234)
+  const w = _slimeW / 2, h = _slimeH;
+  final body = Path()
+    ..moveTo(-w, -9)
+    ..cubicTo(-w - 2, -h * 0.55, -w * 0.62, -h, 0, -h)
+    ..cubicTo(w * 0.62, -h, w + 2, -h * 0.55, w, -9)
+    ..quadraticBezierTo(w, 0, w - 12, 0)
+    ..lineTo(-w + 12, 0)
+    ..quadraticBezierTo(-w, 0, -w, -9)
     ..close();
-  final jacket = _linear(
-    const Offset(398, 0),
-    const Offset(446, 0),
-    const [Color(0xFF2F7A45), Color(0xFF4DB06B), Color(0xFF2F7A45)],
-    const [0, 0.6, 1],
+  canvas.drawPath(
+    body,
+    Paint()
+      ..shader = Gradient.radial(
+        Offset(-14 - lookX * 4, -h * 0.68),
+        h * 0.95,
+        const [_slimeLight, _slimeMid, _slimeDark],
+        const [0, 0.5, 1],
+      ),
   );
-
-  if (facing == Facing.up) {
-    canvas.drawPath(armL, arm);
-    canvas.drawPath(armR, arm);
-  }
-  canvas.drawPath(torso, jacket);
-  canvas.drawPath(torso, _inkStroke);
-  if (facing != Facing.up) {
-    canvas.drawLine(const Offset(420, 182), const Offset(420, 234), _stroke(const Color(0xFF24572F), 2));
-  }
-  canvas.drawRRect(
-    RRect.fromRectAndRadius(const Rect.fromLTWH(398, 226, 48, 8), const Radius.circular(3)),
-    Paint()..color = const Color(0xFF24572F),
-  );
-  if (facing != Facing.up) {
-    canvas.drawPath(armL, arm);
-    canvas.drawPath(armR, arm);
-    _skinAt(const Rect.fromLTWH(380, 230, 76, 20));
-    canvas.drawCircle(Offset(392 - swing * 0.6, 242), 6, _skin);
-    canvas.drawCircle(Offset(450 + swing * 0.6, 238), 6, _skin);
-  }
-
-  _skinAt(const Rect.fromLTWH(403, 137, 34, 34));
-  canvas.drawRect(const Rect.fromLTWH(414, 168, 12, 10), _skin);
+  // Bayangan dalam di dasar supaya terlihat kenyal & bervolume.
+  canvas.save();
+  canvas.clipPath(body);
   canvas.drawOval(
-    Rect.fromCenter(center: const Offset(403, 156), width: 6, height: 8),
-    Paint()..color = const Color(0xFFB07A50),
+    Rect.fromCenter(center: const Offset(0, 2), width: w * 2.2, height: 26),
+    Paint()..color = const Color(0x401D2F5C),
   );
-  canvas.drawOval(
-    Rect.fromCenter(center: const Offset(437, 156), width: 6, height: 8),
-    Paint()..color = const Color(0xFFB07A50),
-  );
-  canvas.drawCircle(const Offset(420, 154), 17, _skin);
+  canvas.restore();
+  canvas.drawPath(body, _stroke(BColors.ink, 2.5));
 
-  if (facing == Facing.up) {
-    // Tampak belakang: rambut menutup kepala.
-    canvas.drawCircle(const Offset(420, 152), 17, _ink);
-  } else {
-    final hair = Path()
-      ..moveTo(403, 152)
-      ..quadraticBezierTo(402, 134, 420, 133)
-      ..quadraticBezierTo(438, 134, 437, 152)
-      ..quadraticBezierTo(432, 142, 420, 142)
-      ..quadraticBezierTo(410, 142, 403, 152)
-      ..close();
-    canvas.drawPath(hair, _ink);
-    final ex = lookX * 4;
-    canvas.drawCircle(Offset(414 + ex, 156), 2.2, _ink);
-    canvas.drawCircle(Offset(426 + ex, 156), 2.2, _ink);
-    final smile = Path()
-      ..moveTo(414 + ex, 163)
-      ..quadraticBezierTo(420 + ex, 167, 426 + ex, 163);
-    canvas.drawPath(smile, _stroke(BColors.ink, 1.8));
-  }
+  // Kilap jelly.
+  final shine = Paint()..color = const Color(0xD9FFFFFF);
+  canvas.save();
+  canvas.translate(-w * 0.5, -h * 0.72);
+  canvas.rotate(-0.6);
+  canvas.drawOval(Rect.fromCenter(center: Offset.zero, width: 20, height: 11), shine);
+  canvas.restore();
+  canvas.drawCircle(Offset(-w * 0.2, -h * 0.86), 3, shine);
+
+  final back = lookY < -0.6;
+  if (!back) _slimeFace(canvas, lookX.clamp(-1.0, 1.0), lookY.clamp(-1.0, 1.0));
+  if (helmet) _slimeHelmet(canvas);
   canvas.restore();
 }
 
+void _slimeFace(Canvas canvas, double lx, double ly) {
+  // Saat menoleh ke samping, wajah bergeser ke sisi itu dan mata yang jauh mengecil.
+  final shift = lx * 16;
+  final ey = -42.0 + ly * 4;
+  final white = Paint()..color = const Color(0xFFFFFFFF);
+  for (final side in const [-1.0, 1.0]) {
+    final far = side * lx < 0 ? 1 - lx.abs() * 0.35 : 1.0;
+    final c = Offset(side * 15 * (1 - lx.abs() * 0.3) + shift, ey);
+    final eye = Rect.fromCenter(center: c, width: 17 * far, height: 21 * far);
+    canvas.drawOval(eye, white);
+    canvas.drawOval(eye, _stroke(BColors.ink, 2));
+    final pupil = c + Offset(lx * 3.5, ly * 3 + 1);
+    canvas.drawCircle(pupil, 5.5 * far, _ink);
+    canvas.drawCircle(pupil + const Offset(-1.8, -2), 1.8 * far, white);
+  }
+  // Pipi merona & senyum kecil.
+  final blush = Paint()..color = const Color(0x66F28C9A);
+  for (final side in const [-1.0, 1.0]) {
+    canvas.drawOval(Rect.fromCenter(center: Offset(side * 25 + shift, ey + 15), width: 11, height: 6), blush);
+  }
+  final smile = Path()
+    ..moveTo(-5 + shift, ey + 14)
+    ..quadraticBezierTo(shift, ey + 19, 5 + shift, ey + 14);
+  canvas.drawPath(smile, _stroke(BColors.ink, 2));
+}
+
+/// Helm ojek hijau yang menutup ubun-ubun slime.
+void _slimeHelmet(Canvas canvas) {
+  const top = -_slimeH - 4;
+  final shell = Path()
+    ..addArc(const Rect.fromLTWH(-40, top, 80, 64), math.pi, math.pi)
+    ..close();
+  canvas.drawPath(shell, _linear(const Offset(-40, 0), const Offset(40, 0), const [Color(0xFF4DB06B), BColors.hijauAksi]));
+  canvas.drawPath(shell, _inkStroke);
+  canvas.drawLine(const Offset(-14, top + 8), const Offset(-24, top + 22), _stroke(const Color(0x99FFFFFF), 4));
+  final brim = RRect.fromRectAndRadius(const Rect.fromLTWH(-44, top + 29, 88, 7), const Radius.circular(3.5));
+  canvas.drawRRect(brim, Paint()..color = const Color(0xFF24572F));
+  canvas.drawRRect(brim, _inkStroke);
+}
+
 /// Motor matic. Titik (0,0) = tengah bawah (tanah).
-/// Tampak samping menghadap kanan; balik dengan scale(-1,1) untuk kiri.
+/// Arah kanan/kanan-bawah/kanan-atas; balik dengan scale(-1,1) untuk kiri.
 void drawMotor(Canvas canvas, Facing facing, {required bool rider, double wheelSpin = 0}) {
   switch (facing) {
     case Facing.side:
       _motorSide(canvas, rider, wheelSpin);
+    case Facing.downSide:
+      _motorSide(canvas, rider, wheelSpin, slant: 0.42);
+    case Facing.upSide:
+      _motorSide(canvas, rider, wheelSpin, slant: -0.42);
     case Facing.down:
     case Facing.up:
       _motorFrontBack(canvas, facing == Facing.down, rider);
@@ -159,82 +171,101 @@ void drawMotor(Canvas canvas, Facing facing, {required bool rider, double wheelS
 
 final _body = [const Color(0xFF3A72B8), const Color(0xFF173F70)];
 
-void _motorSide(Canvas canvas, bool rider, double spin) {
-  canvas.save();
-  canvas.translate(-626, -271);
-  drawShadow(canvas, const Offset(626, 272), 64, 8);
-
-  final tyre = Paint()..color = const Color(0xFF1F1F1F);
-  final rim = Paint()..color = const Color(0xFFA7AFB8);
-  final spoke = _stroke(const Color(0xFF6B737C), 2);
-  for (final c in const [Offset(592, 256), Offset(660, 256)]) {
-    canvas.drawCircle(c, 15, tyre);
-    canvas.drawCircle(c, 7, rim);
-    canvas.drawLine(c + Offset.fromDirection(spin, 6), c - Offset.fromDirection(spin, 6), spoke);
+/// Tampak samping. [slant] ≠ 0 = tampak 3/4: badan dipendekkan dan roda depan
+/// lebih rendah (slant > 0, menuju kamera) atau lebih tinggi (slant < 0, menjauh).
+void _motorSide(Canvas canvas, bool rider, double spin, {double slant = 0}) {
+  final squeeze = slant == 0 ? 1.0 : 0.74;
+  final toward = slant >= 0;
+  // Titik desain tampak samping → titik setelah dipendekkan & dimiringkan.
+  Offset tf(Offset p) {
+    final x = (p.dx - 626) * squeeze;
+    return Offset(x, p.dy - 271 + slant * x);
   }
 
-  // Box ojek di belakang.
+  drawShadow(canvas, const Offset(0, 1), 64 * squeeze, 8 + slant.abs() * 14);
+
+  final matrix = Float64List.fromList([
+    squeeze, slant * squeeze, 0, 0, //
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1,
+  ]);
+  void machine(void Function() part) {
+    canvas.save();
+    canvas.transform(matrix);
+    canvas.translate(-626, -271);
+    part();
+    canvas.restore();
+  }
+
   final box = RRect.fromRectAndRadius(const Rect.fromLTWH(560, 196, 32, 28), const Radius.circular(4));
-  canvas.drawRRect(box, Paint()..color = BColors.oranye);
-  canvas.drawRRect(box, _inkStroke);
+  void drawBox() => machine(() {
+    canvas.drawRRect(box, Paint()..color = BColors.oranye);
+    canvas.drawRRect(box, _inkStroke);
+  });
 
-  if (rider) {
-    final legs = _stroke(const Color(0xFF2F3D5E), 11);
-    final leg = Path()
-      ..moveTo(604, 226)
-      ..lineTo(628, 232)
-      ..lineTo(634, 250);
-    canvas.drawPath(leg, legs);
-    canvas.drawOval(
-      Rect.fromCenter(center: const Offset(638, 252), width: 16, height: 8),
-      Paint()..color = const Color(0xFFF2F2F2),
-    );
-  }
+  machine(() {
+    final tyre = Paint()..color = const Color(0xFF1F1F1F);
+    final rim = Paint()..color = const Color(0xFFA7AFB8);
+    final spoke = _stroke(const Color(0xFF6B737C), 2);
+    for (final c in const [Offset(592, 256), Offset(660, 256)]) {
+      canvas.drawCircle(c, 15, tyre);
+      canvas.drawCircle(c, 7, rim);
+      canvas.drawLine(c + Offset.fromDirection(spin, 6), c - Offset.fromDirection(spin, 6), spoke);
+    }
+  });
 
-  final body = Path()
-    ..moveTo(574, 250)
-    ..quadraticBezierTo(572, 234, 586, 230)
-    ..lineTo(626, 232)
-    ..quadraticBezierTo(634, 234, 634, 246)
-    ..lineTo(644, 246)
-    ..lineTo(652, 222)
-    ..quadraticBezierTo(656, 212, 664, 216)
-    ..lineTo(672, 242)
-    ..quadraticBezierTo(674, 254, 666, 256)
-    ..lineTo(672, 256)
-    ..quadraticBezierTo(660, 242, 648, 254)
-    ..lineTo(606, 254)
-    ..quadraticBezierTo(594, 240, 580, 254)
-    ..close();
-  canvas.drawPath(body, _linear(const Offset(0, 212), const Offset(0, 256), _body));
-  canvas.drawPath(body, _inkStroke);
-  canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(584, 224, 44, 8), const Radius.circular(4)), _ink);
-  // Lampu depan.
-  canvas.drawCircle(const Offset(668, 224), 4, Paint()..color = const Color(0xFFFFF3B0));
+  // Box ojek di belakang; saat motor menjauh, box berada di depan pengendara.
+  if (toward) drawBox();
 
-  if (rider) {
-    final torso = Path()
-      ..moveTo(596, 228)
-      ..lineTo(600, 192)
-      ..quadraticBezierTo(612, 184, 622, 194)
-      ..lineTo(618, 228)
+  machine(() {
+    final body = Path()
+      ..moveTo(574, 250)
+      ..quadraticBezierTo(572, 234, 586, 230)
+      ..lineTo(626, 232)
+      ..quadraticBezierTo(634, 234, 634, 246)
+      ..lineTo(644, 246)
+      ..lineTo(652, 222)
+      ..quadraticBezierTo(656, 212, 664, 216)
+      ..lineTo(672, 242)
+      ..quadraticBezierTo(674, 254, 666, 256)
+      ..lineTo(672, 256)
+      ..quadraticBezierTo(660, 242, 648, 254)
+      ..lineTo(606, 254)
+      ..quadraticBezierTo(594, 240, 580, 254)
       ..close();
-    canvas.drawPath(
-      torso,
-      _linear(const Offset(596, 0), const Offset(622, 0), const [Color(0xFF2F7A45), Color(0xFF4DB06B)]),
-    );
-    canvas.drawPath(torso, _inkStroke);
+    canvas.drawPath(body, _linear(const Offset(0, 212), const Offset(0, 256), _body));
+    canvas.drawPath(body, _inkStroke);
+    canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(584, 224, 44, 8), const Radius.circular(4)), _ink);
+    if (toward) {
+      canvas.drawCircle(const Offset(668, 224), 4, Paint()..color = const Color(0xFFFFF3B0));
+    } else {
+      // Lampu belakang terlihat saat motor menjauh.
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(const Rect.fromLTWH(572, 236, 7, 8), const Radius.circular(2)),
+        Paint()..color = BColors.atapMerah,
+      );
+    }
+  });
+
+  if (rider) {
+    final seat = tf(const Offset(604, 230));
+    final grip = tf(const Offset(654, 218));
+    // Tangan jelly menjulur ke setang.
     final arm = Path()
-      ..moveTo(614, 198)
-      ..lineTo(638, 212)
-      ..lineTo(654, 218);
-    canvas.drawPath(arm, _stroke(BColors.hijauAksi, 9));
-    _skinAt(const Rect.fromLTWH(598, 160, 28, 28));
-    canvas.drawCircle(const Offset(656, 218), 4.5, _skin);
-    canvas.drawCircle(const Offset(612, 174), 13, _skin);
-    _helmet(canvas, const Offset(612, 172), visorRight: true);
+      ..moveTo(seat.dx + 12, seat.dy - 20)
+      ..quadraticBezierTo(seat.dx + 28, seat.dy - 18, grip.dx, grip.dy);
+    canvas.drawPath(arm, _stroke(BColors.ink, 10));
+    canvas.drawPath(arm, _stroke(_slimeMid, 6));
+    canvas.save();
+    canvas.translate(seat.dx, seat.dy);
+    canvas.scale(_riderScale);
+    drawSlime(canvas, lookX: 1, lookY: slant == 0 ? 0 : (toward ? 0.6 : -0.4), helmet: true, shadow: false);
+    canvas.restore();
+    canvas.drawCircle(grip, 4.5, Paint()..color = _slimeMid);
+    canvas.drawCircle(grip, 4.5, _stroke(BColors.ink, 1.5));
   }
-  canvas.restore();
+  if (!toward) drawBox();
 }
 
 void _motorFrontBack(Canvas canvas, bool front, bool rider) {
@@ -252,17 +283,11 @@ void _motorFrontBack(Canvas canvas, bool front, bool rider) {
   if (front) drawBox();
 
   if (rider) {
-    final torso = RRect.fromRectAndRadius(const Rect.fromLTWH(-15, -100, 30, 42), const Radius.circular(9));
-    canvas.drawRRect(
-      torso,
-      _linear(
-        const Offset(-15, 0),
-        const Offset(15, 0),
-        const [Color(0xFF2F7A45), Color(0xFF4DB06B), Color(0xFF2F7A45)],
-        const [0, 0.55, 1],
-      ),
-    );
-    canvas.drawRRect(torso, _inkStroke);
+    canvas.save();
+    canvas.translate(0, -58);
+    canvas.scale(_riderScale);
+    drawSlime(canvas, lookY: front ? 1 : -1, helmet: true, shadow: false);
+    canvas.restore();
   }
 
   final shield = Path()
@@ -286,37 +311,12 @@ void _motorFrontBack(Canvas canvas, bool front, bool rider) {
   }
 
   if (rider) {
-    final hands = Paint()..color = const Color(0xFFC48C60);
-    canvas.drawLine(const Offset(-12, -92), const Offset(-22, -62), _stroke(BColors.hijauAksi, 8));
-    canvas.drawLine(const Offset(12, -92), const Offset(22, -62), _stroke(BColors.hijauAksi, 8));
-    canvas.drawCircle(const Offset(-23, -60), 4, hands);
-    canvas.drawCircle(const Offset(23, -60), 4, hands);
-    _skinAt(const Rect.fromLTWH(-13, -126, 26, 26));
-    canvas.drawCircle(const Offset(0, -112), 13, _skin);
-    _helmet(canvas, const Offset(0, -114), visorFront: front);
+    // Tangan jelly memegang setang.
+    for (final x in const [-23.0, 23.0]) {
+      canvas.drawCircle(Offset(x, -60), 4.5, Paint()..color = _slimeMid);
+      canvas.drawCircle(Offset(x, -60), 4.5, _stroke(BColors.ink, 1.5));
+    }
   }
   if (!front) drawBox();
   canvas.restore();
-}
-
-void _helmet(Canvas canvas, Offset c, {bool visorRight = false, bool visorFront = false}) {
-  final shell = Path()
-    ..addArc(Rect.fromCircle(center: c, radius: 15), 3.3, 2.82)
-    ..close();
-  canvas.drawPath(shell, Paint()..color = BColors.hijauAksi);
-  canvas.drawPath(shell, _inkStroke);
-  if (visorRight) {
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromLTWH(c.dx + 4, c.dy - 2, 10, 7), const Radius.circular(3)),
-      Paint()..color = const Color(0xFF2B3A4A),
-    );
-  } else if (visorFront) {
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromLTWH(c.dx - 10, c.dy - 2, 20, 7), const Radius.circular(3)),
-      Paint()..color = const Color(0xFF2B3A4A),
-    );
-  } else {
-    canvas.drawCircle(c, 15, Paint()..color = BColors.hijauAksi);
-    canvas.drawCircle(c, 15, _inkStroke);
-  }
 }

@@ -31,7 +31,7 @@ import 'systems/workshop.dart';
 /// Input gabungan dari HUD sentuh dan keyboard (untuk uji di desktop).
 class Controls {
   final Vector2 stick = Vector2.zero();
-  bool gasBtn = false, brakeBtn = false, leftBtn = false, rightBtn = false;
+  bool gasBtn = false, brakeBtn = false;
 
   final Set<LogicalKeyboardKey> _keys = {};
 
@@ -46,14 +46,13 @@ class Controls {
     return v;
   }
 
-  bool get gas => gasBtn || _k(LogicalKeyboardKey.arrowUp, LogicalKeyboardKey.keyW);
-  bool get brake => brakeBtn || _k(LogicalKeyboardKey.arrowDown, LogicalKeyboardKey.keyS);
-  bool get left => leftBtn || _k(LogicalKeyboardKey.arrowLeft, LogicalKeyboardKey.keyA);
-  bool get right => rightBtn || _k(LogicalKeyboardKey.arrowRight, LogicalKeyboardKey.keyD);
+  /// Saat berkendara, [move] menjadi arah setir; gas & rem pakai tombol tersendiri.
+  bool get gas => gasBtn || _k(LogicalKeyboardKey.space, LogicalKeyboardKey.keyJ);
+  bool get brake => brakeBtn || _k(LogicalKeyboardKey.keyX, LogicalKeyboardKey.keyK);
 
   void releaseAll() {
     stick.setZero();
-    gasBtn = brakeBtn = leftBtn = rightBtn = false;
+    gasBtn = brakeBtn = false;
   }
 }
 

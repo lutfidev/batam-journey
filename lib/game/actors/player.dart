@@ -10,13 +10,13 @@ import 'sprites.dart';
 
 enum PlayerMode { walking, riding }
 
-/// Pemain (Lutfi). Saat naik motor, posisinya menempel ke motor
+/// Pemain (slime jelly). Saat naik motor, posisinya menempel ke motor
 /// sehingga kamera cukup mengikuti satu komponen ini.
 class Player extends PositionComponent with HasGameReference<BatamGame> {
   Player({required Vector2 position}) : super(position: position);
 
-  /// Skala piksel desain → satuan dunia (tinggi badan ±4,6 unit).
-  static const spriteScale = 0.032;
+  /// Skala piksel desain → satuan dunia (slime ±3,6 × 3,1 unit).
+  static const spriteScale = 0.036;
   static const walkSpeed = 6.0;
 
   /// Jarak maksimal (unit dunia) untuk bisa naik motor.
@@ -65,9 +65,10 @@ class Player extends PositionComponent with HasGameReference<BatamGame> {
       final m = move.length > 1 ? move.normalized() : move;
       _walk(m * walkSpeed * dt);
       _facing.setFrom(m);
-      _phase += dt * (6 + 6 * m.length);
+      _phase += dt * (5 + 5 * m.length);
     } else {
-      _phase = 0;
+      // Napas pelan saat diam.
+      _phase += dt * 2.5;
     }
     priority = position.y.toInt();
   }
@@ -89,10 +90,10 @@ class Player extends PositionComponent with HasGameReference<BatamGame> {
   @override
   void render(Canvas canvas) {
     if (isRiding) return;
-    final facing = _facing.y < -0.6 ? Facing.up : Facing.down;
     canvas.save();
     canvas.scale(spriteScale);
-    drawWalker(canvas, facing, _phase, _facing.x.clamp(-1.0, 1.0), _moving);
+    final look = _facing.normalized();
+    drawSlime(canvas, lookX: look.x, lookY: look.y, phase: _phase, moving: _moving);
     canvas.restore();
   }
 }

@@ -2,12 +2,13 @@ import 'package:flutter/widgets.dart';
 
 import '../palette.dart';
 
-/// Joystick jalan kaki sesuai layar OnFoot: lingkaran 106 px krem
+/// Joystick (jalan kaki & setir motor) sesuai layar OnFoot: lingkaran 106 px krem
 /// transparan dengan kenop 44 px. [onChanged] menerima vektor -1..1.
 class Joystick extends StatefulWidget {
-  const Joystick({super.key, required this.onChanged});
+  const Joystick({super.key, required this.onChanged, this.label = 'Joystick jalan'});
 
   final ValueChanged<Offset> onChanged;
+  final String label;
 
   @override
   State<Joystick> createState() => _JoystickState();
@@ -37,7 +38,7 @@ class _JoystickState extends State<Joystick> {
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      label: 'Joystick jalan',
+      label: widget.label,
       child: Listener(
         onPointerDown: (e) {
           if (_pointer != null) return;

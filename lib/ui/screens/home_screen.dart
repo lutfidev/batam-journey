@@ -367,8 +367,8 @@ class _PlanPainter extends CustomPainter {
     }
     canvas.save();
     canvas.translate(300, 192);
-    canvas.scale(0.42);
-    drawWalker(canvas, Facing.down, 0, 0, false);
+    canvas.scale(0.55);
+    drawSlime(canvas);
     canvas.restore();
   }
 
