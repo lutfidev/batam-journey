@@ -146,10 +146,12 @@ class DirectionalSprite {
 
   static final _paint = Paint()..filterQuality = FilterQuality.medium;
 
-  /// Gambar sel arah [direction], animasi [anim] pada detik [time], dengan
-  /// titik pijak di (0,0) kanvas dan ukuran dalam satuan dunia.
-  void render(Canvas canvas, {required int direction, String? anim, double time = 0, Paint? paint}) {
+  /// Gambar sel arah [direction], animasi [anim] pada detik [time] (atau frame
+  /// [frame] bila diisi, mis. dari fase langkah), dengan titik pijak di (0,0)
+  /// kanvas dan ukuran dalam satuan dunia.
+  void render(Canvas canvas, {required int direction, String? anim, double time = 0, int? frame, Paint? paint}) {
     final a = anim == null ? spec.animations.first : spec.anim(anim);
-    canvas.drawImageRect(image, spec.cell(direction, a.name, a.frameAt(time)), spec.worldRect, paint ?? _paint);
+    final f = frame == null ? a.frameAt(time) : frame % a.frames;
+    canvas.drawImageRect(image, spec.cell(direction, a.name, f), spec.worldRect, paint ?? _paint);
   }
 }

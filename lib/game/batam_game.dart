@@ -6,6 +6,7 @@ import 'package:flame/game.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' show KeyEventResult;
+import 'package:path_provider/path_provider.dart';
 
 import '../ui/palette.dart';
 import 'actors/business_station.dart';
@@ -82,7 +83,11 @@ class BatamGame extends FlameGame with KeyboardEvents {
   late final RoadEventSystem roadEvents;
   late final MissionSystem missions;
   late final ui.Image mapImage;
-  late final sprites = SpriteLibrary(loadImage: images.load, loadText: (f) => assets.readFile('images/$f'));
+  late final sprites = SpriteLibrary(
+    loadImage: images.load,
+    loadText: (f) => assets.readFile('images/$f'),
+    cacheDir: () async => kIsWeb ? null : '${(await getApplicationCacheDirectory()).path}/sprites',
+  );
   final stations = <FuelStation>[];
   final workshops = <WorkshopStation>[];
   final houses = <HouseStation>[];
@@ -201,8 +206,9 @@ class BatamGame extends FlameGame with KeyboardEvents {
     final kerb = road + normal * (seg.edge.width / 2 + 2.5);
 
     motor = Motorbike(position: Vector2(kerb.dx, kerb.dy), heading: math.atan2(dir.dy, dir.dx));
-    player = Player(position: Vector2(kerb.dx, kerb.dy) + Vector2(dir.dx, dir.dy) * -3.5);
-    world.addAll([motor, player, DestinationPin(await sprites.load(SpriteIds.pinTujuan))]);
+    final (slime, pin) = await (sprites.load(SpriteIds.slime), sprites.load(SpriteIds.pinTujuan)).wait;
+    player = Player(position: Vector2(kerb.dx, kerb.dy) + Vector2(dir.dx, dir.dy) * -3.5, sprite: slime);
+    world.addAll([motor, player, DestinationPin(pin)]);
 
     _followPlayer();
     camera.viewfinder.zoom = _baseZoom * walkZoom;
