@@ -61,8 +61,8 @@ Urutan boleh digeser.
 - [ ] 17. `feat/ringkasan-koleksi`: ringkasan harian (desain `08`) dan koleksi/pencapaian
       (desain `18`).
 
-## C. Aset Blender (mulai Desember 2026)
-Baru dikerjakan mulai Desember 2026, sekarang hanya to-do. Tujuannya meningkatkan model low-poly
+## C. Aset Blender (mulai November 2026)
+Baru dikerjakan mulai November 2026, sekarang hanya to-do. Tujuannya meningkatkan model low-poly
 dari langkah 2–5 menjadi model Blender yang lebih detail. Kode game tetap memakai format sprite
 16 arah yang sama.
 
