@@ -4,12 +4,13 @@ import 'dart:ui';
 import 'package:flame/components.dart';
 
 import '../batam_game.dart';
+import '../iso.dart';
 import '../map/road_layer.dart';
 import '../systems/economy.dart';
 import 'sprites.dart';
 
 /// Motor matic pemain. Bisa diparkir atau dikendarai.
-class Motorbike extends PositionComponent with HasGameReference<BatamGame> {
+class Motorbike extends PositionComponent with HasGameReference<BatamGame>, IsoPlaced {
   Motorbike({required Vector2 position, this.heading = 0}) : super(position: position);
 
   /// Skala piksel desain → satuan dunia (panjang motor ±5,9 unit).
@@ -50,7 +51,7 @@ class Motorbike extends PositionComponent with HasGameReference<BatamGame> {
 
   double get speedKmh => speed.abs() * kmhPerUnit;
 
-  /// Arah gambar (0..7) dengan histeresis supaya tidak berkedip di batas.
+  /// Arah gambar di layar (0..7) dengan histeresis supaya tidak berkedip di batas.
   int _octant = 0;
 
   MotorPose get pose => poseFor(_octant);
@@ -81,8 +82,9 @@ class Motorbike extends PositionComponent with HasGameReference<BatamGame> {
     if (speed > top) speed = math.max(top, speed - brakeDecel * dt);
     speed = speed.clamp(-maxReverse, maxSpeed * FuelGrade.turbo.speedBonus * math.max(1, ws.speedFactor));
 
-    // Setir mengikuti arah joystick di layar: moncong motor diputar ke arah itu.
-    final stick = c.move;
+    // Setir mengikuti arah joystick di layar: moncong motor diputar ke arah itu
+    // (arah layar dipetakan balik ke arah tanah).
+    final stick = screenDirToGround(c.move);
     if (ridden && speed.abs() > 0.1 && stick.length2 > 0.04) {
       final target = math.atan2(stick.y, stick.x);
       final grip = (speed.abs() / 8).clamp(minGrip, 1.0);
@@ -102,8 +104,8 @@ class Motorbike extends PositionComponent with HasGameReference<BatamGame> {
     if (ridden) tank.consume(speed.abs() * dt);
     game.clampToWorld(position);
     _wheel += speed * dt * 0.9;
-    _octant = octantWithHysteresis(_octant, heading);
-    priority = position.y.toInt();
+    _octant = octantWithHysteresis(_octant, screenHeadingOf(heading));
+    priority = isoDepth(position);
   }
 
   @override

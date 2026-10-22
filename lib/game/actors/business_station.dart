@@ -5,13 +5,14 @@ import 'package:flutter/painting.dart' show TextPainter, TextSpan, TextStyle, Fo
 
 import '../../ui/palette.dart';
 import '../batam_game.dart';
+import '../iso.dart';
 import '../systems/business.dart';
 
 /// Ruko usaha (gaya ruko desain OnFoot): kanopi berwarna, kaca etalase,
 /// papan nama, dan status DISEWAKAN / BUKA. Titik (0,0) = tengah depan.
-class BusinessStation extends PositionComponent with HasGameReference<BatamGame> {
+class BusinessStation extends PositionComponent with HasGameReference<BatamGame>, IsoPlaced {
   BusinessStation({required Vector2 position, required this.type})
-    : super(position: position, priority: position.y.toInt() - 12);
+    : super(position: position, priority: isoDepth(position, -12));
 
   final BizType type;
 
@@ -44,6 +45,10 @@ class BusinessStation extends PositionComponent with HasGameReference<BatamGame>
     ),
     textDirection: TextDirection.ltr,
   )..layout();
+
+  /// Sprite lama (tampak 3/4) dipusatkan di tengah lantai iso sampai diganti model 3D.
+  @override
+  Offset get spriteOffset => buildingSpriteOffset;
 
   @override
   void render(Canvas canvas) {

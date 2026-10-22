@@ -4,15 +4,16 @@ import 'package:flame/components.dart';
 import 'package:flutter/painting.dart' show TextPainter, TextSpan, TextStyle, FontWeight;
 
 import '../../ui/palette.dart';
+import '../iso.dart';
 import 'sprites.dart';
 
 /// SPBU "BensinKu" di pinggir jalan: lantai, dua pompa, kanopi merah-putih.
 /// Titik (0,0) = tengah depan lantai; ukuran ±18×14 unit.
-class FuelStation extends PositionComponent {
+class FuelStation extends PositionComponent with IsoPlaced {
   FuelStation({required Vector2 position, required this.area, required this.pumpNo})
     // Prioritas = tepi belakang lantai, supaya pemain/motor di atas lantai
     // tetap tergambar di depan kanopi.
-    : super(position: position, priority: position.y.toInt() - 12);
+    : super(position: position, priority: isoDepth(position, -12));
 
   final String area;
   final int pumpNo;
@@ -44,6 +45,10 @@ class FuelStation extends PositionComponent {
     ),
     textDirection: TextDirection.ltr,
   )..layout();
+
+  /// Sprite lama (tampak 3/4) dipusatkan di tengah lantai iso sampai diganti model 3D.
+  @override
+  Offset get spriteOffset => buildingSpriteOffset;
 
   @override
   void render(Canvas canvas) {

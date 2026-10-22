@@ -4,14 +4,15 @@ import 'package:flame/components.dart';
 import 'package:flutter/painting.dart' show TextPainter, TextSpan, TextStyle, FontWeight;
 
 import '../../ui/palette.dart';
+import '../iso.dart';
 import 'sprites.dart';
 
 /// Bengkel motor di pinggir jalan: bangunan kecil, rolling door terbuka,
 /// papan "BENGKEL", tumpukan ban. Titik (0,0) = tengah depan lantai.
-class WorkshopStation extends PositionComponent {
+class WorkshopStation extends PositionComponent with IsoPlaced {
   WorkshopStation({required Vector2 position, required this.name})
     // Prioritas = tepi belakang, supaya pemain/motor di depannya tetap terlihat.
-    : super(position: position, priority: position.y.toInt() - 11);
+    : super(position: position, priority: isoDepth(position, -11));
 
   final String name;
 
@@ -42,6 +43,10 @@ class WorkshopStation extends PositionComponent {
     ),
     textDirection: TextDirection.ltr,
   )..layout();
+
+  /// Sprite lama (tampak 3/4) dipusatkan di tengah lantai iso sampai diganti model 3D.
+  @override
+  Offset get spriteOffset => buildingSpriteOffset;
 
   @override
   void render(Canvas canvas) {
