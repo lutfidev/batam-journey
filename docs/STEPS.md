@@ -35,7 +35,7 @@ Dikerjakan dulu, berurutan.
       - Motor miring saat belok, gas/rem bertahap, assist lajur ringan.
       - Asap knalpot dan jejak rem.
       - Kamera melihat ke depan sesuai laju. Slime berhelm duduk di motor.
-- [ ] 5. `feat/kota-iso`: SPBU, bengkel, rumah, dan ruko jadi model 3D.
+- [x] 5. `feat/kota-iso`: SPBU, bengkel, rumah, dan ruko jadi model 3D.
       - Blok bangunan kota dibuat prosedural menurut kepadatan jalan.
       - Pohon 3D, lampu jalan, zebra cross.
       - Tanah di-cache per chunk 1×1 km.
@@ -100,3 +100,5 @@ selesai saat November, aset yang tersisa langsung dibuat di Blender.
 - [x] Renderer model low-poly Dart, panggang 16 arah, format sprite bersama (PR #5).
 - [x] Slime 3D 16 arah, lompat kenyal, jalan kaki berpercepatan (PR #6).
 - [x] Motor 3D + rasa berkendara: miring, gas/rem bertahap, assist lajur, asap, jejak rem (PR #7).
+- [x] Kota isometrik 3D: SPBU, bengkel, rumah, ruko, blok kota prosedural, pohon, lampu jalan,
+      zebra cross, tanah di-cache per chunk (PR #8).
