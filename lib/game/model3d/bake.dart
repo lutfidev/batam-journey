@@ -14,9 +14,14 @@ class ModelAsset {
     required this.animations,
     required this.build,
     this.style = const RenderStyle(),
+    this.directions = 16,
   });
 
   final double pixelsPerUnit;
+
+  /// Jumlah arah yang dipanggang: 16 untuk aktor; bangunan cukup 4 (tegak lurus
+  /// sumbu tanah, gaya kota isometrik) supaya atlasnya tidak terlalu besar.
+  final int directions;
   final List<SpriteAnim> animations;
 
   /// Model untuk frame ke-[frame] animasi [anim], menghadap +x.
@@ -53,7 +58,8 @@ class BakedSheet {
 
 /// Panggang [asset] ke 16 arah × semua frame. Ukuran sel sama untuk semua pose
 /// (gabungan batas semua pose), dan titik pijak ada di koordinat piksel bulat.
-BakedSheet bakeModel(ModelAsset asset, {int directions = 16}) {
+BakedSheet bakeModel(ModelAsset asset, {int? directions}) {
+  directions ??= asset.directions;
   final layout = _layout(asset, directions);
   final cells = _renderCells(asset, layout.frame, directions, 0, layout.spec.rows * directions);
   return _assemble(layout.spec, [cells]);
@@ -61,14 +67,15 @@ BakedSheet bakeModel(ModelAsset asset, {int directions = 16}) {
 
 /// Seperti [bakeModel], tetapi sel dibagi rata ke [workers] isolate
 /// (HP punya banyak inti; satu isolate saja terlalu lama untuk aset besar).
-Future<BakedSheet> bakeModelParallel(ModelAsset asset, {int workers = 4, int directions = 16}) async {
-  final layout = _layout(asset, directions);
+Future<BakedSheet> bakeModelParallel(ModelAsset asset, {int workers = 4, int? directions}) async {
+  final dirs = directions ?? asset.directions;
+  final layout = _layout(asset, dirs);
   final frame = layout.frame;
-  final total = layout.spec.rows * directions;
+  final total = layout.spec.rows * dirs;
   final per = (total / workers).ceil();
   final parts = await Future.wait([
     for (var start = 0; start < total; start += per)
-      Isolate.run(() => _renderCells(asset, frame, directions, start, math.min(total, start + per))),
+      Isolate.run(() => _renderCells(asset, frame, dirs, start, math.min(total, start + per))),
   ]);
   return _assemble(layout.spec, parts);
 }
@@ -151,7 +158,8 @@ const rendererVersion = 2;
 
 /// Sidik jari isi [asset] (semua pose, bahan, gaya, skala) untuk kunci cache disk:
 /// berubah bila modelnya diubah. FNV-1a 32-bit atas byte angka-angkanya.
-String fingerprint(ModelAsset asset, {int directions = 16}) {
+String fingerprint(ModelAsset asset, {int? directions}) {
+  directions ??= asset.directions;
   var h = 0x811c9dc5;
   final bytes = ByteData(8);
   void num(double v) {

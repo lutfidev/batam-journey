@@ -31,7 +31,7 @@ Dikerjakan dulu, berurutan.
 - [x] 3. `feat/slime-3d`: slime 3D baru (volume, kilap, mata ekspresif) dengan 16 arah.
       - Animasi kenyal: squash-stretch, toleh halus, debu langkah.
       - Jalan kaki pakai percepatan/perlambatan (tidak meluncur).
-- [ ] 4. `feat/motor-3d`: motor 3D baru + rasa berkendara.
+- [x] 4. `feat/motor-3d`: motor 3D baru + rasa berkendara.
       - Motor miring saat belok, gas/rem bertahap, assist lajur ringan.
       - Asap knalpot dan jejak rem.
       - Kamera melihat ke depan sesuai laju. Slime berhelm duduk di motor.
@@ -99,3 +99,4 @@ selesai saat November, aset yang tersisa langsung dibuat di Blender.
 - [x] Fondasi isometrik: proyeksi tanah, kamera, joystick, kedalaman (PR #4).
 - [x] Renderer model low-poly Dart, panggang 16 arah, format sprite bersama (PR #5).
 - [x] Slime 3D 16 arah, lompat kenyal, jalan kaki berpercepatan (PR #6).
+- [x] Motor 3D + rasa berkendara: miring, gas/rem bertahap, assist lajur, asap, jejak rem (PR #7).

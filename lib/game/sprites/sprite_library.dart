@@ -6,8 +6,10 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 
 import '../model3d/bake.dart';
+import '../model3d/models/buildings.dart';
 import '../model3d/models/motor.dart';
 import '../model3d/models/pin_tujuan.dart';
+import '../model3d/models/props.dart';
 import '../model3d/models/slime.dart';
 import 'bake_cache.dart';
 import 'sprite_sheet.dart';
@@ -37,6 +39,21 @@ abstract final class SpriteIds {
   static const pinTujuan = 'pin_tujuan';
   static const slime = 'slime';
   static const motor = 'motor';
+
+  // Kota (langkah 5): bangunan 4 arah, pohon 4 arah, lampu 16 arah.
+  static const spbu = 'spbu';
+  static const bengkel = 'bengkel';
+  static const rumah = 'rumah';
+  static const kos = 'kos';
+  static const villa = 'villa';
+  static const ruko = 'ruko';
+  static const gedung = 'gedung';
+  static const pabrik = 'pabrik';
+  static const pohon = 'pohon';
+  static const lampuJalan = 'lampu_jalan';
+
+  /// Aset kota, urut dari yang paling sering terlihat (dipanggang berurutan).
+  static const city = [pohon, rumah, ruko, lampuJalan, spbu, bengkel, kos, villa, gedung, pabrik];
 }
 
 /// Sumber sprite per aset. Saat sheet Blender siap, cukup ganti barisnya ke
@@ -45,6 +62,16 @@ final spriteSources = <String, SpriteSource>{
   SpriteIds.pinTujuan: const BakedSource(pinTujuanAsset),
   SpriteIds.slime: const BakedSource(slimeAsset),
   SpriteIds.motor: const BakedSource(motorAsset),
+  SpriteIds.spbu: BakedSource(spbuAsset),
+  SpriteIds.bengkel: BakedSource(bengkelAsset),
+  SpriteIds.rumah: BakedSource(rumahAsset),
+  SpriteIds.kos: BakedSource(kosAsset),
+  SpriteIds.villa: BakedSource(villaAsset),
+  SpriteIds.ruko: BakedSource(rukoAsset),
+  SpriteIds.gedung: BakedSource(gedungAsset),
+  SpriteIds.pabrik: BakedSource(pabrikAsset),
+  SpriteIds.pohon: BakedSource(pohonAsset),
+  SpriteIds.lampuJalan: BakedSource(lampuJalanAsset),
 };
 
 /// Memuat dan menyimpan (cache) sprite per id; tiap aset dipanggang/dimuat sekali.
@@ -73,6 +100,9 @@ class SpriteLibrary {
   final _ready = <String, DirectionalSprite>{};
 
   Future<DirectionalSprite> load(String id) => _cache[id] ??= _load(id).then((s) => _ready[id] = s);
+
+  /// Sprite [id] bila sudah selesai dimuat, tanpa memicu pemuatan.
+  DirectionalSprite? loaded(String id) => _ready[id];
 
   /// Sprite yang sudah selesai dimuat lewat [load].
   DirectionalSprite operator [](String id) => _ready[id] ?? (throw StateError('sprite "$id" belum dimuat'));

@@ -77,8 +77,8 @@ class Player extends PositionComponent with HasGameReference<BatamGame>, IsoPlac
     bike.ridden = false;
     final side = Vector2(math.sin(bike.heading), -math.cos(bike.heading))..scale(3.2);
     position = bike.position + side;
-    // Di jembatan/pinggir pantai: jangan turun ke air, tetap di atas motor.
-    if (game.isWaterBlocked(position.toOffset())) position.setFrom(bike.position);
+    // Di jembatan/pinggir pantai/mepet tembok: jangan turun ke air atau ke dalam bangunan.
+    if (game.isBlocked(position.toOffset())) position.setFrom(bike.position);
     game.clampToWorld(position);
     _heading = bike.heading;
     _dir = sprite.spec.directionOf(_heading);
@@ -143,15 +143,15 @@ class Player extends PositionComponent with HasGameReference<BatamGame>, IsoPlac
       ..add(_Puff(at - side, 0.8 + _rng.nextDouble() * 0.4));
   }
 
-  /// Gerak sejauh [d]; di pantai meluncur sepanjang garis pantai (coba X lalu Y).
-  /// Bagian kecepatan yang tertahan air dinolkan.
+  /// Gerak sejauh [d]; di pantai/dinding meluncur sepanjang tepinya (coba X lalu Y).
+  /// Bagian kecepatan yang tertahan air/bangunan dinolkan.
   void _walk(Vector2 d) {
-    final stuck = game.isWaterBlocked(position.toOffset());
+    final stuck = game.isBlocked(position.toOffset());
     final steps = [d, Vector2(d.x, 0), Vector2(0, d.y)];
     var moved = false;
     for (var i = 0; i < steps.length && !moved; i++) {
       final next = position + steps[i];
-      if (stuck || !game.isWaterBlocked(next.toOffset())) {
+      if (stuck || !game.isBlocked(next.toOffset())) {
         position.setFrom(next);
         if (i == 1) velocity.y = 0;
         if (i == 2) velocity.x = 0;

@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -17,9 +19,13 @@ import 'actors/motorbike.dart';
 import 'actors/player.dart';
 import 'actors/skid_marks.dart';
 import 'actors/workshop_station.dart';
+import 'city/city_gen.dart';
+import 'city/city_layer.dart';
 import 'iso.dart';
+import 'map/land_mask.dart';
 import 'map/road_graph.dart';
 import 'map/road_layer.dart';
+import 'model3d/models/buildings.dart';
 import 'sprites/sprite_library.dart';
 import 'systems/business.dart';
 import 'systems/clock.dart';
@@ -84,6 +90,12 @@ class BatamGame extends FlameGame with KeyboardEvents {
   late final RoadEventSystem roadEvents;
   late final MissionSystem missions;
   late final ui.Image mapImage;
+
+  /// Mask darat/laut dari [mapImage].
+  late final LandMask mask;
+
+  /// Lapisan kota 3D (bangunan, pohon, lampu) yang juga menggambar aktor.
+  late final CityLayer city;
   late final sprites = SpriteLibrary(
     loadImage: images.load,
     loadText: (f) => assets.readFile('images/$f'),
@@ -177,13 +189,15 @@ class BatamGame extends FlameGame with KeyboardEvents {
       save();
     };
     mapImage = await images.load('batam_peta.jpg');
+    mask = await LandMask.fromImage(mapImage, graph.size);
     try {
       await SaveData.load(wallet, tank, orders.ordersDone, stats, parts: _saveParts);
     } catch (_) {
       // Penyimpanan tidak tersedia: mulai dari awal.
     }
     _warnedLow = tank.isLow;
-    world.addAll([RoadLayer(graph), skids]);
+    city = CityLayer(graph: graph, mask: mask);
+    world.addAll([RoadLayer(graph, mask), skids, city]);
     _placeStations();
     _placeWorkshops();
     _placeHouses();
@@ -205,7 +219,7 @@ class BatamGame extends FlameGame with KeyboardEvents {
     final road = seg.closestPoint(anchor);
     final dir = (seg.b - seg.a) / seg.length;
     final normal = Offset(-dir.dy, dir.dx);
-    final kerb = road + normal * (seg.edge.width / 2 + 2.5);
+    final kerb = road + normal * (seg.edge.width / 2 + 1.2);
 
     final (slime, bike, pin) = await (
       sprites.load(SpriteIds.slime),
@@ -214,45 +228,54 @@ class BatamGame extends FlameGame with KeyboardEvents {
     ).wait;
     motor = Motorbike(position: Vector2(kerb.dx, kerb.dy), sprite: bike, heading: math.atan2(dir.dy, dir.dx));
     player = Player(position: Vector2(kerb.dx, kerb.dy) + Vector2(dir.dx, dir.dy) * -3.5, sprite: slime);
-    world.addAll([motor, player, DestinationPin(pin)]);
+    city.addAll([motor, player, DestinationPin(pin)]);
 
     _followPlayer();
     camera.viewfinder.zoom = _baseZoom * walkZoom;
     orders.refreshOffers(playerOffset);
     _refreshHud();
     worldReady.value = true;
+    unawaited(_buildCity());
   }
 
-  /// SPBU dari POI `fuel`, digeser ke pinggir jalan utama terdekat.
-  /// Titik di pinggir jalan utama terdekat dari [poi], di sisi tempat POI berada.
-  /// (0,0) bangunan = tepi depan lantai; lantainya memanjang ke atas.
-  Offset? _besideRoad(Offset poi) {
-    final hit = graph.nearest(poi, maxDist: 400);
-    if (hit == null) return null;
-    final s = hit.segment;
-    final onRoad = s.closestPoint(poi);
-    final dir = (s.b - s.a) / s.length;
-    var normal = Offset(-dir.dy, dir.dx);
-    final away = poi - onRoad;
-    if (away.dx * normal.dx + away.dy * normal.dy < 0) normal = -normal;
-    final at = onRoad + normal * (s.edge.width / 2 + 1.5);
-    return at + Offset(0, 12.0 * math.max(0, normal.dy));
+  /// Blok kota dibuat di isolate lain (tidak menahan layar), lalu sprite kota
+  /// dipanggang satu per satu; tiap jenis muncul begitu sprite-nya siap.
+  Future<void> _buildCity() async {
+    final g = graph, m = mask;
+    final reserved = [
+      for (final b in [...stations.map((s) => s.site), ...workshops.map((w) => w.site)]) b.footprint,
+      for (final h in houses) h.site.footprint,
+      for (final b in businesses) b.site.footprint,
+    ];
+    final specs = kIsWeb ? generateBuildings(g, m, reserved) : await Isolate.run(() => generateBuildings(g, m, reserved));
+    city.addBuildings(specs);
+    for (final id in SpriteIds.city) {
+      await sprites.load(id);
+    }
   }
 
+  /// Tapak bangunan penting yang sudah dipakai (SPBU, bengkel, rumah, ruko usaha).
+  final _taken = RectIndex();
+
+  /// Lokasi bangunan [info] di pinggir jalan terdekat dari [near], menghadap jalan,
+  /// bergeser sepanjang jalan bila tempatnya sudah terpakai.
+  Site? _site(Offset near, BuildingInfo info) {
+    final site = siteBeside(graph, near, info, taken: _taken, mask: mask);
+    if (site != null) _taken.add(site.footprint);
+    return site;
+  }
+
+  /// SPBU dari POI `fuel`, di pinggir jalan utama terdekat.
   void _placeStations() {
     for (final poi in graph.pois.where((p) => p.type == 'fuel')) {
-      final at = _besideRoad(poi.position);
-      if (at == null) continue;
-      if (stations.any((st) => (st.position.toOffset() - at).distance < 30)) continue;
-      stations.add(
-        FuelStation(
-          position: Vector2(at.dx, at.dy),
-          area: graph.nearestPlaceName(poi.position),
-          pumpNo: 1 + stations.length % 4,
-        ),
-      );
+      if (stations.any((st) => (st.site.center - poi.position).distance < 30)) continue;
+      final site = _site(poi.position, spbuInfo);
+      if (site == null) continue;
+      stations.add(FuelStation(site: site, area: graph.nearestPlaceName(poi.position), pumpNo: 1 + stations.length % 4));
     }
-    world.addAll(stations);
+    for (final s in stations) {
+      city.addProps(s.props);
+    }
   }
 
   Map<String, JsonState> get _saveParts => {
@@ -266,29 +289,20 @@ class BatamGame extends FlameGame with KeyboardEvents {
   /// Kos Bu Ros (lokasi misi) dan rumah-rumah dijual dari desain Property.
   void _placeHouses() {
     final kos = missions.missions.firstWhere((m) => m.id == 'c1_kos').place;
-    final spots = <(Offset, String, Color, String)>[
-      if (kos != null) (kos.position, Housing.kosId, BColors.oranye, 'Kos Bu Ros'),
+    final spots = <(Offset, String, String)>[
+      if (kos != null) (kos.position, Housing.kosId, 'Kos Bu Ros'),
       for (final l in houseListings)
-        if (graph.findPoi((p) => p.name == l.poiName) case final poi?) (poi.position, l.id, l.roof, l.name),
+        if (graph.findPoi((p) => p.name == l.poiName) case final poi?) (poi.position, l.id, l.name),
     ];
-    for (final (pos, id, roof, title) in spots) {
-      final base = _besideRoad(pos);
-      if (base == null) continue;
-      // Geser sepanjang jalan bila sudah ada SPBU/bengkel/rumah di situ (mis. kos & Bengkel Mas Joko).
-      final at =
-          [
-            for (final dx in const [0.0, 22.0, -22.0, 44.0, -44.0]) base + Offset(dx, 0),
-          ].firstWhere(
-            (c) => !_occupied(c) && (c == base || graph.clearance(c + const Offset(0, -6), maxDist: 12) > 0.5),
-            orElse: () => base,
-          );
-      houses.add(HouseStation(position: Vector2(at.dx, at.dy), homeId: id, roof: roof, title: title));
+    for (final (pos, id, title) in spots) {
+      final site = _site(pos, HouseStation.modelFor(id).$3);
+      if (site == null) continue;
+      houses.add(HouseStation(site: site, homeId: id, title: title));
     }
-    world.addAll(houses);
+    for (final h in houses) {
+      city.addProps(h.props(housing));
+    }
   }
-
-  bool _occupied(Offset at) =>
-      [...stations, ...workshops, ...houses, ...businesses].any((b) => (b.position.toOffset() - at).distance < 20);
 
   /// Pin rumah untuk peta: rumah dijual dan tempat tinggalmu.
   List<Poi> get housePois => [
@@ -313,18 +327,13 @@ class BatamGame extends FlameGame with KeyboardEvents {
   void _placeBusinesses() {
     for (final t in bizTypes) {
       final poi = graph.findPoi((p) => p.name == t.poiName);
-      final base = poi == null ? null : _besideRoad(poi.position);
-      if (base == null) continue;
-      final at =
-          [
-            for (final dx in const [0.0, 22.0, -22.0, 44.0, -44.0]) base + Offset(dx, 0),
-          ].firstWhere(
-            (c) => !_occupied(c) && (c == base || graph.clearance(c + const Offset(0, -6), maxDist: 12) > 0.5),
-            orElse: () => base,
-          );
-      businesses.add(BusinessStation(position: Vector2(at.dx, at.dy), type: t));
+      final site = poi == null ? null : _site(poi.position, rukoInfo);
+      if (site == null) continue;
+      businesses.add(BusinessStation(site: site, type: t));
     }
-    world.addAll(businesses);
+    for (final b in businesses) {
+      city.addProps(b.props(business));
+    }
   }
 
   /// Pin usaha untuk peta.
@@ -337,7 +346,7 @@ class BatamGame extends FlameGame with KeyboardEvents {
 
   Poi _bizPoi(String id) {
     final st = businesses.firstWhere((b) => b.type.id == id);
-    return Poi('business', st.type.name, st.position.toOffset() + const Offset(0, 2));
+    return Poi('business', st.type.name, st.position.toOffset());
   }
 
   /// Belanja bahan sendiri: bayar di muka, jemput di pasar terdekat, antar ke usaha.
@@ -394,27 +403,20 @@ class BatamGame extends FlameGame with KeyboardEvents {
 
   /// Bengkel: toko motor di data peta ("Bengkel Mas Joko") + satu di samping tiap SPBU.
   void _placeWorkshops() {
-    final spots = <(Offset, String)>[];
-    for (final poi in graph.pois) {
-      if (poi.type != 'marketplace' || !(poi.name ?? '').toLowerCase().contains('motor')) continue;
-      final at = _besideRoad(poi.position);
-      if (at != null) spots.add((at, 'Bengkel Mas Joko'));
+    final spots = <(Offset, String)>[
+      for (final poi in graph.pois)
+        if (poi.type == 'marketplace' && (poi.name ?? '').toLowerCase().contains('motor')) (poi.position, 'Bengkel Mas Joko'),
+      for (final st in stations) (st.site.center, 'Bengkel ${st.area}'),
+    ];
+    for (final (near, name) in spots) {
+      if (workshops.any((w) => (w.site.center - near).distance < 25)) continue;
+      final site = _site(near, bengkelInfo);
+      if (site == null) continue;
+      workshops.add(WorkshopStation(site: site, name: name));
     }
-    for (final st in stations) {
-      for (final dx in const [22.0, -22.0]) {
-        final at = st.position.toOffset() + Offset(dx, 0);
-        if (graph.clearance(at + const Offset(0, -6), maxDist: 12) > 0.5) {
-          spots.add((at, 'Bengkel ${st.area}'));
-          break;
-        }
-      }
+    for (final w in workshops) {
+      city.addProps(w.props);
     }
-    for (final (at, name) in spots) {
-      if (workshops.any((w) => (w.position.toOffset() - at).distance < 25)) continue;
-      if (stations.any((st) => (st.position.toOffset() - at).distance < 18)) continue;
-      workshops.add(WorkshopStation(position: Vector2(at.dx, at.dy), name: name));
-    }
-    world.addAll(workshops);
   }
 
   double get _baseZoom => size.y / 390;
@@ -481,7 +483,7 @@ class BatamGame extends FlameGame with KeyboardEvents {
     return Destination(
       title: 'SPBU BensinKu ${s.area}',
       subtitle: s.area,
-      position: s.position.toOffset() + const Offset(0, -6),
+      position: s.position.toOffset(),
     );
   }
 
@@ -489,19 +491,6 @@ class BatamGame extends FlameGame with KeyboardEvents {
 
   /// Boleh isi bensin: dekat SPBU dan (kalau naik motor) sudah berhenti.
   bool get canRefuel => nearStation.value != null && motor.speedKmh <= 5;
-
-  /// Apakah lingkaran ([p], [r]) menimpa lantai SPBU atau bengkel (untuk pohon).
-  bool isNearBuilding(Offset p, double r) {
-    bool hit(Offset front, double halfW, double depth) =>
-        p.dx + r > front.dx - halfW &&
-        p.dx - r < front.dx + halfW &&
-        p.dy + r > front.dy - depth &&
-        p.dy - r < front.dy + 1;
-    return stations.any((s) => hit(s.position.toOffset(), 9.5, 15)) ||
-        workshops.any((w) => hit(w.position.toOffset(), 8.5, 15)) ||
-        houses.any((h) => hit(h.position.toOffset(), 8.5, 15)) ||
-        businesses.any((b) => hit(b.position.toOffset(), 8.5, 15));
-  }
 
   /// Boleh masuk bengkel: dekat bengkel dan (kalau naik motor) sudah berhenti.
   bool get canEnterWorkshop => nearWorkshop.value != null && motor.speedKmh <= 5;
@@ -590,25 +579,25 @@ class BatamGame extends FlameGame with KeyboardEvents {
 
     FuelStation? near;
     for (final s in stations) {
-      if ((s.position.toOffset() + const Offset(0, -6) - p).distance <= FuelStation.serviceRange) near = s;
+      if ((s.position.toOffset() - p).distance <= FuelStation.serviceRange) near = s;
     }
     nearStation.value = near;
 
     WorkshopStation? nearW;
     for (final w in workshops) {
-      if ((w.position.toOffset() + const Offset(0, -5) - p).distance <= WorkshopStation.serviceRange) nearW = w;
+      if ((w.position.toOffset() - p).distance <= WorkshopStation.serviceRange) nearW = w;
     }
     nearWorkshop.value = nearW;
 
     BusinessStation? nearB;
     for (final b in businesses) {
-      if ((b.position.toOffset() + const Offset(0, -5) - p).distance <= BusinessStation.serviceRange) nearB = b;
+      if ((b.position.toOffset() - p).distance <= BusinessStation.serviceRange) nearB = b;
     }
     nearBusiness.value = nearB;
 
     HouseStation? nearH;
     for (final h in houses) {
-      if ((h.position.toOffset() + const Offset(0, -5) - p).distance <= HouseStation.serviceRange) nearH = h;
+      if ((h.position.toOffset() - p).distance <= HouseStation.serviceRange) nearH = h;
     }
     nearHouse.value = nearH;
 
